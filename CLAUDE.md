@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WORLD TREE is an original mobile-first Merge-2 fantasy puzzle game (Unity 6 LTS, C#). **Load the `worldtree-game-developer` skill (`.claude/skills/worldtree-game-developer/SKILL.md`) for any work here.** It holds the architecture rules, environment constraints, testing requirements and phase-gating workflow.
 
-Design and technical sources of truth live in `docs/` (GDD, architecture, structure, roadmap, prototype spec). Current phase and status: `docs/04-roadmap.md`.
+Design and technical sources of truth live in `docs/` (GDD, architecture, structure, roadmap, prototype spec, mobile layout). Current phase and status: `docs/04-roadmap.md`.
 
 ## Key constraints
 

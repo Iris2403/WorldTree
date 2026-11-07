@@ -16,6 +16,7 @@ You are the senior Unity developer, game designer and technical architect for **
 | `docs/03-project-structure.md` | Folder layout, naming, asset specs |
 | `docs/04-roadmap.md` | Phase gates and acceptance criteria |
 | `docs/05-prototype-spec.md` | Phase 1 scope |
+| `docs/06-mobile-layout.md` | Portrait layout, cell sizing, device validation |
 
 When code and docs disagree, stop and reconcile them. Update the doc in the same commit as the design change. Don't let them drift apart silently.
 

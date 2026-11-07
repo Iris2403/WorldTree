@@ -1,6 +1,6 @@
 # WORLD TREE: Development Roadmap
 
-> Status: **Draft v0.1, awaiting approval.** One phase at a time. Each phase ends with a working, testable result and explicit user approval before the next phase starts.
+> Status: **Draft v0.2 (design review 1 applied), awaiting approval.** One phase at a time. Each phase ends with a working, testable result and explicit user approval before the next phase starts.
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Editor validation
 
@@ -12,15 +12,27 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [x] Folder and asset structure
 - [x] Roadmap
 - [x] Phase 1 prototype specification
+- [x] Design review 1: generator merging, Withered/Sealed rules, energy budget, save reliability, Unity 6 dependencies, mobile layout (decisions below)
 - [ ] **User approval of the above**
+
+### Design review 1: decisions
+
+| # | Topic | Decision | Documented in |
+|---|---|---|---|
+| D1 | Generator merging | The result is always full capacity of the new level, any pending recharge is discarded, state belongs to the item instance, consumables never merge | GDD §4.3 |
+| D2 | Withered and Sealed | Only merges cleanse: the result cell and its orthogonal Withered neighbours become Open, and Sealed cells next to those become Withered. One step, no cascade. Same-ID cleansing merge directly onto a Withered item | GDD §3.2–3.3 |
+| D3 | Energy | Keep cap 100 and +1 per 2 min (core player ≈ 415 Sap per day ≈ 4 sessions of 5–8 min). Generator values changed to 40 charges / 20 min at Lv1 so that Sap, not cooldowns, limits sessions. Per-area Sap budgets set | GDD §4.2, §5.1 |
+| D4 | Saving | Commit-on-command with coalescing replaces the 2 s debounce. Atomic tmp → bak → json protocol with sequence + SHA-256, newest-valid recovery, critical transactions, full interruption test suite in Phase 1. Save stack moved into Core for .NET CI | Architecture §6 |
+| D5 | Unity dependencies | Unity 6.3 LTS. TextMeshPro comes from `com.unity.ugui` 2.0.0 (assembly `Unity.TextMeshPro`), with no standalone TMP package. Full Phase 1 manifest specified | Architecture §2 |
+| D6 | Mobile layout | Fixed portrait regions with Regular/Compact/Minimum tiers. Cells ≥ 44 pt on all reference devices (worst case 45.8 pt). Pure-C# layout solver with tests | `06-mobile-layout.md` |
 
 ## Phase 1: Project architecture and playable prototype ⬜
 
-**Deliverables:** Unity project skeleton (manifest, asmdefs, folders), Core models for board, merge, a single generator and energy, `GameSession`, a minimal save, a graybox board scene built by an Editor menu, drag input, and Core tests plus .NET CI. Full scope in `05-prototype-spec.md`.
+**Deliverables:** Unity project skeleton (manifest, asmdefs, folders), Core models for board, merge, generators (including Lv1 → Lv2 merging) and energy, `GameSession`, the full atomic save stack with interruption tests, the layout solver, a graybox portrait board scene built by an Editor menu, drag input, a debug stats overlay, and Core tests plus .NET CI. Full scope in `05-prototype-spec.md`.
 
-**Acceptance:** the Core test suite passes in CI, and in Unity the player can generate, drag, merge, and see Sap drain and regenerate. State survives an app restart.
+**Acceptance:** the Core test suite passes in CI, and in Unity the player can generate, drag, merge, and see Sap drain and regenerate. State survives an app restart, including one right after a merge.
 
-**⚠ Editor validation:** packages resolve, everything compiles, the `WorldTree/Setup/Build Prototype Scene` menu builds a working scene, drag feels responsive with mouse and touch (Device Simulator), and the EditMode tests pass in Test Runner.
+**⚠ Editor validation:** packages resolve and the resolved `manifest.json` / `packages-lock.json` are committed, TMP Essential Resources are imported, Active Input Handling is set to the Input System, everything compiles, the `WorldTree/Setup/Build Prototype Scene` menu builds a working scene, drag feels responsive with mouse and touch (Device Simulator), the layout checklist (`06-mobile-layout.md` §7) passes, and the EditMode tests pass in Test Runner.
 
 ## Phase 2: Merge board and item progression ⬜
 
@@ -64,9 +76,9 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 
 ## Phase 7: Saving, optimization and mobile builds ⬜
 
-**Deliverables:** save hardening (atomic writes, backup, migrations, checksum), Addressables for area art, local notifications, Localization package, profiling pass against the budgets, Android and iOS build configs, GameCI pipeline (optional, needs a license secret).
+**Deliverables:** save hardening on devices (atomic writes, recovery and interruption tests already land in Phase 1; this phase adds migration fixtures from real saves, IL2CPP background-write verification and the device kill test), Addressables for area art, local notifications, Localization package, profiling pass against the budgets, Android and iOS build configs, GameCI pipeline (optional, needs a license secret).
 
-**Acceptance:** migration fixture tests, kill-during-save test, budgets met on a reference device.
+**Acceptance:** migration fixture tests, device kill test (Architecture §6.7), budgets met on a reference device.
 
 **⚠ Editor validation:** builds, device profiling, notifications.
 

@@ -1,6 +1,6 @@
 # WORLD TREE: Folder and Asset Structure
 
-> Status: **Draft v0.1, awaiting approval.**
+> Status: **Draft v0.2 (design review 1 applied), awaiting approval.**
 
 ## 1. Repository layout
 
@@ -13,7 +13,7 @@ WorldTree/
 │       ├── Scripts/
 │       │   ├── Core/            WorldTree.Core.asmdef   (pure C#)
 │       │   │   ├── Board/  Items/  Generators/  Energy/  Orders/
-│       │   │   ├── Progression/  Economy/  Story/  Save/  Common/
+│       │   │   ├── Progression/  Economy/  Story/  Save/  Layout/  Common/
 │       │   │   └── GameSession.cs
 │       │   ├── Data/            WorldTree.Data.asmdef   (ScriptableObjects)
 │       │   ├── Platform/        WorldTree.Platform.asmdef
