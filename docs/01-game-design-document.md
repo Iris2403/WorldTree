@@ -1,6 +1,6 @@
 # WORLD TREE: Game Design Document
 
-> Status: **Draft v0.2 (design review 1 applied), awaiting approval.** All numbers are starting values for tuning, not final balance.
+> Status: **Draft v0.3 (design review 2 applied), awaiting approval.** All numbers are starting values for tuning, not final balance.
 
 ## 1. Overview
 
@@ -133,34 +133,40 @@ Generators are board items that produce chain items when tapped.
 ### 4.1 Rules
 
 - **Tap cost:** 1 Sap per tap (some special generators are free).
-- **Charges and recharge (cycle model):** each permanent generator holds up to `capacity` charges for its level. A tap uses 1 charge. When charges reach **0**, recharge starts, and when it finishes the generator returns to **full capacity at once**. A generator with charges left never recharges partially. Recharge can be skipped for Moonpetals, or the remaining time halved once per cycle by a rewarded ad.
-- **Timers are absolute:** a recharging generator stores `rechargeEndsUtc`. State is evaluated lazily from the clock, so recharge continues while the generator is in the satchel, while the app is closed, or after a save rollback. If the device clock moves backwards so that the remaining time exceeds the full recharge duration, the remaining time is clamped to the full duration (recharge is never faster, and never stuck).
+- **Charges and refill (revised in design review 2):** each permanent generator holds up to `capacity` charges for its level, and a tap uses 1 charge. The **refill timer starts at the first tap taken while the generator is full**. When the timer ends, the generator returns to **full capacity at once, however many charges were left**. While the timer runs, further taps don't restart it. If charges reach 0 before the timer ends, the generator is *depleted* and waits for the timer. The timer can be skipped for Moonpetals, or the remaining time halved once per cycle by a rewarded ad.
+  - *Why not refill only when empty (v0.2 rule):* the 7-day simulation (§5.1) showed that a session ending with a few charges left (for example 8 + 9) made the next session, hours later, start with only those 17 charges, because the timer never started. Players would be punished for not emptying generators, and every session after the first stalled.
+- **Timers are absolute:** a generator with a running timer stores `refillEndsUtc`. State is evaluated lazily from the clock, so the timer runs while the generator is in the satchel, while the app is closed, or after a save rollback. If the device clock moves backwards so that the remaining time exceeds the full refill duration, the remaining time is clamped to the full duration (refill is never faster, and never stuck).
+- **Consequence:** any generator not tapped during the last refill duration (20 min at Lv1) is full. Between normal sessions, every generator is full.
 - **Tap order of checks:** generator is Open → generator has a charge → an empty Open cell exists → Sap is available. If any check fails, **nothing** changes (no Sap or charge is spent).
 - **Spawn placement:** the new item appears in the **nearest empty Open cell** by Manhattan distance from the generator. Ties go to the smaller row (higher on screen), then the smaller column (further left). It flies out of the generator with an arc animation.
 - **Drop table:** a weighted list per generator level, mostly level-1 and level-2 items of its chain, with occasional higher levels and rare cross-chain or bonus drops.
-- **Upgrade:** merging two generators of the same type and level gives the next level (max Lv5); see §4.3. Higher levels have more charges, shorter recharge and, most importantly, better drop tables. **Generator Sprouts** (a Lv1 generator item of a given type) drop from orders and chests, so players can upgrade without RNG frustration. Reaching Lv*N* takes 2^(N−1) sprouts.
-- **Consumable generators** (Mystery Acorn, Reward Chests) have a fixed number of taps and **no recharge**, then vanish with a flourish. They never merge.
+- **Upgrade:** merging two generators of the same type and level gives the next level (max Lv5); see §4.3. Higher levels have more charges, shorter refill timers and, most importantly, better drop tables. **Generator Sprouts** (a Lv1 generator item of a given type) drop from orders and chests, so players can upgrade without RNG frustration. Reaching Lv*N* takes 2^(N−1) sprouts.
+- **Consumable generators** (Mystery Acorn, Reward Chests) have a fixed number of taps and **no refill**, then vanish with a flourish. They never merge.
 
-### 4.2 Starting values (revised in design review 1)
+### 4.2 Starting values (revised in design review 2)
 
-| Level | Capacity | Recharge | L1 / L2 / L3 / L4 drop % | L1-equivalents per tap |
+| Level | Capacity | Refill timer | L1 / L2 / L3 / L4 drop % | L1-equivalents per tap |
 |---|---|---|---|---|
-| 1 | 40 | 20 min | 80 / 18 / 2 / 0 | 1.24 |
-| 2 | 48 | 18 min | 70 / 25 / 5 / 0 | 1.40 |
-| 3 | 56 | 16 min | 60 / 30 / 9 / 1 | 1.64 |
-| 4 | 64 | 14 min | 50 / 35 / 13 / 2 | 1.88 |
-| 5 | 80 | 12 min | 40 / 38 / 18 / 4 | 2.20 |
+| 1 | 60 | 20 min | 80 / 18 / 2 / 0 | 1.24 |
+| 2 | 66 | 18 min | 70 / 25 / 5 / 0 | 1.40 |
+| 3 | 72 | 16 min | 60 / 30 / 9 / 1 | 1.64 |
+| 4 | 80 | 14 min | 50 / 35 / 13 / 2 | 1.88 |
+| 5 | 90 | 12 min | 40 / 38 / 18 / 4 | 2.20 |
 
-*L1-equivalents per tap* = the expected value of a tap, counting a level-*k* item as 2^(k−1) level-1 items. This is the generator's real Sap efficiency, and the main reason to upgrade.
+*L1-equivalents per tap* = the expected value of a tap, counting a level-*k* item as 2^(k−1) level-1 items. This is the generator's real Sap efficiency, and the main reason to upgrade. Capacity rises only modestly per level, because capacity is not meant to be the limiter (see below).
 
-**Why the values changed (v0.1 had 12 charges / 15 min at Lv1):** with v0.1 values the two starting generators held only 24 charges, so a 100-Sap session stalled after about 2 minutes. Sessions would have been limited by cooldowns, and Sap would have been mostly irrelevant. The revised values make **Sap the session limiter** (two Lv1 generators hold 80 charges, three hold 120). **Cooldowns** then only bite when a player taps a single chain heavily, which is their real design job: pushing variety across chains and orders. Between normal sessions (3+ hours apart) every generator is fully recharged. See §5.1.
+**Starting-capacity rule:** the generators a player is *guaranteed* to own at every point of progression must together hold at least **120 charges** = one full Sap bar (100) + in-session regeneration (≈ 4) + about 15% margin. The two starting generators hold 2 × 60 = 120. Permanent generators can't be sold, and new ones only add capacity, so the rule holds for the rest of the game once it holds at the start. The data validator checks it for each area's starting layout.
+
+**History:** v0.1 (12 charges / 15 min) stalled a 100-Sap session after 24 taps. v0.2 (40 charges, refill only when empty) gave 2 × 40 = 80 charges, which is less than a full bar. The simulation confirmed that **every** core session ended at a generator stall with about 22 Sap unspent (§5.1). v0.3 (this table plus the first-tap refill rule) is the only simulated variant with **zero** generator stalls for every player profile.
+
+**What still limits a session:** Sap. Generators only stall a session that starts with *more* than a normal bar (level-up refills, gifts and purchases push Sap above the cap), or when the player taps a single chain. Both are acceptable: over-cap Sap is never lost, and single-chain stalls are the intended push toward variety.
 
 ### 4.3 Generator merging (exact rules)
 
 | Situation | Result |
 |---|---|
-| Same type, same level L < 5, both permanent | **Merge** into Lv(L+1) in the target cell, at **full capacity** of the new level, not recharging |
-| … one depleted and recharging, the other full | Full Lv(L+1). The pending recharge is discarded |
+| Same type, same level L < 5, both permanent | **Merge** into Lv(L+1) in the target cell, at **full capacity** of the new level, no refill timer running |
+| … one depleted (timer running), the other full | Full Lv(L+1). The running timer is discarded |
 | … both depleted | Full Lv(L+1) |
 | … both partly used | Full Lv(L+1). Leftover charges aren't carried over (the new level's capacity always exceeds either input) |
 | Same type, both Lv5 | **Swap** (max level) |
@@ -172,38 +178,55 @@ Generators are board items that produce chain items when tapped.
 
 - Generator merges **cleanse and reveal** like any merge (§3.3), unlock a Codex entry for a new generator level, and play the "upgrade" celebration.
 - A pending ad speed-up or skip belongs to the consumed instance and is discarded.
-- **Generator state belongs to the item instance, not the cell.** Moving, swapping or storing a generator in the satchel keeps its charges and `rechargeEndsUtc`.
-- **Why the result is always full:** an upgrade is a reward moment, and a single rule is easy to understand and show in the UI. Carrying over or summing charges was considered and rejected: it's hard to explain, and the leftover charges are always worth less than the new level's capacity. **Exploit check:** merging two depleted generators skips at most one recharge cycle, and it costs a generator that took 2^(L−1) sprouts to build. Sprout drop rates are tuned in the Phase 4 balance simulator so that this never becomes a routine way to skip cooldowns.
+- **Generator state belongs to the item instance, not the cell.** Moving, swapping or storing a generator in the satchel keeps its charges and `refillEndsUtc`.
+- **Why the result is always full:** an upgrade is a reward moment, and a single rule is easy to understand and show in the UI. Carrying over or summing charges was considered and rejected: it's hard to explain, and the leftover charges are always worth less than the new level's capacity.
+
+**Cooldown-skip risk (acknowledged, measured in Phase 4).** Merging two depleted generators does remove the remaining wait on both. How much this is worth:
+
+- **It doesn't create Sap.** Every tap still costs 1 Sap. While Sap limits sessions (§4.2), skipping a wait doesn't turn more Sap into items. It only matters in sessions that are generator-limited (over-cap Sap, single-chain focus).
+- **The real gain from an upgrade is efficiency:** better drop tables convert each Sap into more L1-equivalents (1.24 → 1.40 at Lv2). That gain is intended and is priced by sprout scarcity: Lv*N* costs 2^(N−1) sprouts.
+- **The wait skipped is bounded** by one refill timer (≤ 20 min at Lv1), because of the first-tap refill rule.
+
+The Phase 4 balance simulator must report, per profile and per day: generator upgrades obtained (by source), refill time skipped through merges, extra taps made possible by skipped waits, the Sap → L1-equivalent conversion rate, and the share of all taps made on a freshly merged generator. **Threshold:** if taps enabled by skipped waits exceed **5% of a core player's daily taps**, sprout drop rates are reduced first. Only if that fails is the merge rule changed to the fallback: *the result inherits the later of the two inputs' refill timers*.
 
 ## 5. Energy (Sap)
 
-- **Sap** is the energy currency. **Cap 100.** It regenerates **+1 every 2 minutes** (full in about 3h20m) while below the cap. Regeneration continues offline and is calculated from UTC timestamps.
+- **Sap** is the energy currency. **Cap 100.** It regenerates **+1 every 2 minutes** (full from empty in exactly 3 h 20 min) while below the cap. Regeneration continues offline and is calculated from UTC timestamps.
+- **Exact timer rule:** the regen timer starts when Sap drops below the cap (spending at time *t* schedules the next +1 at *t* + 120 s) and stops when Sap reaches the cap. Time spent at or above the cap generates nothing. A partial interval isn't kept when the cap is reached.
 - Rewards (level-up, daily gift, chests, ads, purchases) can push Sap **above the cap**. The cap only limits regeneration.
 - **Level-up** fully refills Sap (to at least the cap).
 - **Daily Gift:** a 7-day calendar (Sap, Glimmer, generator sprouts, and a Moonpetals bundle on day 7). Missing a day doesn't reset progress, it just pauses the calendar.
 - **Rewarded ad** *(optional, Phase 8)*: +25 Sap, max 5 per day. It is never required and never shown automatically.
 - **Refill with Moonpetals:** +100 Sap. The cost rises each time within a day (10 → 20 → 40 …) and resets at local midnight.
 - **Clock safety:** negative time deltas are ignored, and regeneration can never exceed what the elapsed time allows. The cap prevents abuse from clock skipping forward.
-- **Notification** *(Phase 7)*: optional local push notification when Sap is full or a generator has recharged.
+- **Notification** *(Phase 7)*: optional local push notification when Sap is full or a generator has refilled.
 
-### 5.1 Energy budget analysis (design review 1)
+### 5.1 Energy budget analysis (design reviews 1 and 2)
 
-**Decision: keep cap 100 and +1 per 2 min.** The reasoning is below. Generator values were changed instead (§4.2).
+**Decision: keep cap 100 and +1 per 2 min.** Generator values and the generator refill rule were changed instead (§4.1, §4.2).
 
-**Raw numbers:** 30 Sap per hour, full from empty in **3 h 20 min**, a theoretical maximum of **720 per day** (only reachable by checking in every 3 h 20 min around the clock).
+**Method (design review 2):** a deterministic 7-day simulation, [`tools/balance/energy_sim.py`](../tools/balance/energy_sim.py), with the full output in [`balance/energy-simulation.md`](balance/energy-simulation.md). It simulates whole seconds with the exact regen timer rule above, explicit session start times, one tap every 4 s (3 and 5 s as sensitivity), sessions ending at Sap 0, at a generator stall or after 20 min, generators with charges and refill timers, and **regeneration only** (no level-up, gift or chest Sap). The simulation starts at 00:00 on day 1 with a full bar.
 
-**Daily Sap from regeneration only** (spending to 0 every session, 8-minute sessions):
+**Schedules:** Light: 08:00 and 20:00 · **Core: 08:00, 12:30, 17:30, 21:30** · Engaged: every 2.5 h from 08:00 to 20:30 · Reference: every 3 h 20 min, 24/7.
 
-| Player profile | Sessions | Sap per day |
-|---|---|---|
-| Light | 2 (morning, evening) | ~210 |
-| **Core (design target)** | **4** (08:00, 12:30, 17:00, 21:30) | **~415** |
-| Engaged | 6 (every 2.5 h while awake) | ~480 |
-| Theoretical maximum | every 3 h 20 min, 24/7 | ~700 |
+**The 720 ceiling:** 86,400 s ÷ 120 s = exactly 720 regenerated Sap per day, but only if Sap is **never** at the cap. Usable Sap = what is spent, which depends on when the player spends it. The reference schedule spends exactly 720/day with 0 hours at the cap, which confirms the model. Real schedules lose everything regenerated while the bar sits full.
 
-Other sources (level-up refills, Daily Gift, chests) add an estimated +10–20% on a typical day, and much more on days 1–3 when levels come fast.
+**Results with the v0.3 generator values (2 × 60 charges, first-tap refill), 4 s per Sap:**
 
-**Session length check:** each Sap is about 1 tap plus about 1 merge drag (plus occasional deliveries), at roughly 1.5–2.5 s per action. That's **3–5 s per Sap**, so **one full cap of 100 Sap ≈ 5–8 minutes**. This is inside the 3–10 minute session target, and a core player gets about 4 × 6.5 ≈ 26 minutes of play per day.
+| Profile | Sap spent per day (days 2–7) | 7-day total | Hours at cap per day | Regen lost at cap per day | Avg session | Generator stalls |
+|---|---|---|---|---|---|---|
+| Light | 206 | 1,442 | 17.1 h | 514 | 6.9 min | 0 of 14 |
+| **Core (design target)** | **412** | **2,884** | 10.3 h | 308 | 6.9 min | 0 of 28 |
+| Engaged | 477 | 3,339 | 8.1 h | 243 | 5.3 min | 0 of 42 |
+| Reference (24/7) | 720 | 5,123 | 0.0 h | 0 | 6.0 min | 0 of 56 |
+
+- **Where the core player's 10.3 h at the cap comes from:** about 7 h overnight (the bar is full by about 01:00 and sits there until 08:00) and about 1 h in each of the three daytime gaps, because 4–5 hours is longer than the 3 h 20 min refill.
+- **Seconds per Sap only changes session length**, not daily Sap: core sessions are 5.1 / 6.9 / 8.7 min at 3 / 4 / 5 s per Sap, for 408–416 Sap per day.
+- **The v0.2 values failed the design goal:** with 2 × 40 charges, refill only when empty, **every** core session ended at a generator stall, with about 22 Sap unspent each time, and daily usable Sap dropped to 320. The v0.1 hand estimate of ~415 per day ignored generator limits. Two intermediate variants (60 charges with refill-on-empty, and 40 charges with first-tap refill) were also simulated, and both still stalled (see the output file).
+
+Other sources (level-up refills, Daily Gift, chests) add an estimated +10–20% on a typical day, and much more on days 1–3 when levels come fast. The core player is therefore budgeted at **~450 Sap per day**.
+
+**Session length check:** each Sap is about 1 tap plus about 1 merge drag (plus occasional deliveries), at roughly 1.5–2.5 s per action. That's **3–5 s per Sap**, so a full session is **5–9 minutes** (simulated). This is inside the 3–10 minute session target, and a core player gets about 28 minutes of play per day.
 
 **Fit with player habits:** a 3 h 20 min refill matches the intended 3–5 check-ins per day. Overnight regeneration is lost after the cap is reached. That's deliberate: it makes a "morning session" feel full without rewarding all-night play.
 
@@ -299,7 +322,7 @@ Each restored area returns a **Memory Leaf**: a short vignette of the Tree's pas
 | **Sap** (energy) | Regeneration, level-ups, daily gift, chests, ads, IAP | Generator taps |
 | **Glimmer** (soft) | Orders, selling, discoveries, chests | Satchel slots, generator sprouts, shop items |
 | **Lifebloom** (progress) | Orders, story deliveries | Restoration tasks |
-| **Moonpetals** (premium) | Small amounts in play (level-ups, Daily Gift day 7, achievements), IAP | Skip recharge, Sap refills, special bundles |
+| **Moonpetals** (premium) | Small amounts in play (level-ups, Daily Gift day 7, achievements), IAP | Skip refill timers, Sap refills, special bundles |
 | **XP** | Orders, discoveries, tasks | Player level (not spendable) |
 
 Balance target: a non-paying player completes **Area 1 in about 2–3 days** and **Area 5 in about 6–8 weeks** of regular play. The per-area Sap budgets that meet this are in §5.1. They'll be validated by a simulation tool in Phase 4.
@@ -318,7 +341,7 @@ Balance target: a non-paying player completes **Area 1 in about 2–3 days** and
 ## 11. Monetization (Phase 8)
 
 - **IAP:** starter pack (one-time), Moonpetal bundles, Sap bundles, an optional "Warden's Pass" season track with free and premium tiers, and themed generator bundles.
-- **Rewarded ads:** opt-in only, for Sap, recharge speed-up, or doubling a chest. Daily cap.
+- **Rewarded ads:** opt-in only, for Sap, refill speed-up, or doubling a chest. Daily cap.
 - **No:** interstitials during board play, energy walls that force a purchase in the story, paid random rewards without published odds, or fake countdown urgency.
 
 ## 12. Out of scope for launch (live-ops backlog)

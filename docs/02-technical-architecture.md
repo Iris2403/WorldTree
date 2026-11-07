@@ -1,6 +1,6 @@
 # WORLD TREE: Technical Architecture
 
-> Status: **Draft v0.2 (design review 1 applied), awaiting approval.**
+> Status: **Draft v0.3 (design review 2 applied), awaiting approval.**
 
 ## 1. Goals
 
@@ -130,7 +130,7 @@ interface   ICatalog      { ItemDef GetItem(ItemId id); ChainDef GetChain(ChainI
 |---|---|---|
 | `BoardModel` | Grid of `Cell { CellState State; ItemInstance Item; }` | `TryPlace`, `Move(from,to) → MoveResult`, `FindNearestEmpty(origin)`, events `ItemPlaced/Moved/Merged/Removed/CellStateChanged` |
 | `MergeRules` (stateless) | Decides Move / Merge / Swap / Reject, and cleansing Withered neighbours | `Resolve(board, from, to, catalog) → MoveResult` |
-| `GeneratorService` | Charges, recharge, tapping, spawn placement | `TryActivate(pos) → ActivationResult`, `GetState(pos)` |
+| `GeneratorService` | Charges, first-tap refill timers, tapping, spawn placement | `TryActivate(pos) → ActivationResult`, `GetState(pos)` |
 | `EnergyModel` | Sap amount, regeneration from timestamps, over-cap rules | `Current`, `TrySpend(n)`, `Add(n)`, `NextTickAt`, `Refresh()` |
 | `Wallet` | Glimmer, Lifebloom, Moonpetals | `TrySpend(currency, n)`, `Add`, event `Changed` |
 | `ProgressionModel` | XP, level, unlock rewards | `AddXp → LevelUpResult` |
@@ -174,7 +174,7 @@ Views are **projections** of model state. A view can always be fully rebuilt fro
 | Asset type | Contents |
 |---|---|
 | `ItemChainDefinition` | Chain ID, display name key, colour accent, ordered list of `ItemLevelEntry { id, nameKey, sprite, sellValue, flags }` |
-| `GeneratorDefinition` | Item ID of the generator, per-level charges, recharge, Sap cost, drop tables |
+| `GeneratorDefinition` | Item ID of the generator, per-level capacity, refill duration, Sap cost, drop tables |
 | `BoardLayoutDefinition` | Width, height, per-cell initial state and item |
 | `OrderPoolDefinition` | Procedural order rules per area (chains, level bands, reward formula) |
 | `AreaDefinition` | Board layout, quest line (tasks, costs, story scenes), unlocks, art references |
@@ -185,7 +185,7 @@ Views are **projections** of model state. A view can always be fully rebuilt fro
 - **Validation:** `OnValidate` plus a `WorldTree/Validate Data` editor menu checks for duplicate IDs, broken `Next` links, unreachable chains, empty drop tables and orders that can't be fulfilled. CI can call the same validator in batch mode later.
 - IDs are typed explicitly in the inspector, never derived from asset names.
 
-## 6. Save system (revised in design review 1)
+## 6. Save system (revised in design reviews 1 and 2)
 
 Mobile operating systems can kill the app at any moment, without `OnApplicationQuit`: low memory, a swipe from the app switcher, a crash, a battery pull. The v0.1 plan (a 2-second debounce) could lose up to 2 seconds of play, including rewards. It is replaced by the design below.
 
@@ -199,20 +199,30 @@ Mobile operating systems can kill the app at any moment, without `OnApplicationQ
 ### 6.2 Format
 
 - **Payload:** JSON (Newtonsoft) of `SaveData` DTOs defined in Core: plain classes, lists instead of engine types.
-- **Contents:** board cells, generator states (charges, `rechargeEndsUtc`), Sap and last regeneration UTC, wallet, XP and level, codex, orders, area and quest progress, story flags, RNG state, settings, daily gift state, and processed purchase transaction IDs (Phase 8).
-- **Envelope:** `{ schemaVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` increases by 1 on every write, so the loader can always tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
+- **Contents:** board cells, generator states (charges, `refillEndsUtc`), Sap and last regeneration UTC, wallet, XP and level, codex, orders, area and quest progress, story flags, RNG state, settings, daily gift state, and processed purchase transaction IDs (Phase 8).
+- **Envelope:** `{ schemaVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` is the `StateVersion` the snapshot was taken at (§6.3). It is strictly increasing across writes, across app sessions and across crashes, but not necessarily consecutive (coalesced versions are skipped). The loader uses it to tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
 - All time-based state uses **absolute UTC timestamps**, so a rollback to an older save never distorts timers.
 
-### 6.3 When saves happen: commit-on-command
+### 6.3 When saves happen: commit-on-command, one serialized write queue (revised in design review 2)
 
-- Each successful `GameSession` command (drag, tap, deliver, sell, claim…) increments a `StateVersion`.
-- `SaveScheduler`:
-  - If no write is in progress: take a **snapshot** on the main thread (a DTO copy of the state, target < 1 ms), then serialize, hash and write it on a **background thread**.
-  - If a write is in progress: mark *pending*. When the write finishes, snapshot the **latest** state and write once more. Many rapid merges therefore produce at most one follow-up write, not one per merge.
-  - Nothing is written when `StateVersion` hasn't changed.
-- **Lifecycle flush:** on `OnApplicationPause(true)`, `OnApplicationFocus(false)` (Android) and `OnApplicationQuit`, wait for any in-progress write, then write the latest state **synchronously**. iOS and Android give apps several seconds when backgrounding, far more than a save takes.
-- **Write failure** (for example, disk full): the previous save stays untouched. The scheduler retries with backoff (1 s, 2 s, 4 s … max 30 s) and shows a non-blocking warning after 3 failures.
-- The background thread touches only the immutable snapshot, never live models, so no locking is needed. `Task.Run` works under IL2CPP on iOS and Android.
+**Concurrency guarantees.** These are invariants of the save stack, and each one has a test in §6.7.
+
+| # | Guarantee | How |
+|---|---|---|
+| G1 | **One writer.** At most one write touches the save files at any time | Every write (background, lifecycle flush, critical, retry, post-load normalization) goes through one `SaveWriteQueue` with one worker. Nothing else calls `AtomicSaveStore.Write` |
+| G2 | **Monotonic sequence.** Every snapshot carries a sequence strictly greater than any snapshot taken before it, across app restarts | `StateVersion` (a 64-bit integer) increments on the main thread for every successful command and is stamped onto the snapshot. On load it resumes from `max(sequence of every readable file, including bak, tmp and quarantined files) + 1` |
+| G3 | **No stale overwrite.** An older snapshot can never replace a newer one on disk | The queue keeps `lastDurableSequence`. Before step 1 of the protocol it **drops** any snapshot whose sequence is ≤ that value. Combined with G1, write order on disk is strictly increasing |
+| G4 | **Coalescing never loses the latest snapshot** | The queue holds an in-flight write plus **one pending slot** (latest wins). A new snapshot replaces the pending one only if its sequence is higher. A write in progress is never cancelled midway. When it finishes, the pending snapshot (always the newest taken) is written next |
+| G5 | **Crash-safe at every replacement stage** | Atomic protocol (§6.5) plus newest-valid recovery (§6.6). Tested by crashing after every individual file operation (§6.7) |
+| G6 | **No purchase confirmation before durability** | A snapshot is *durable* only after step 3 of §6.5 (rename to `save.json`) succeeds. `WhenDurable(sequence)` completes only once `lastDurableSequence ≥ sequence`. IAP confirmation waits on it (§6.4) |
+
+**Flow:**
+
+- Each successful `GameSession` command (drag, tap, deliver, sell, claim…) increments `StateVersion`. At the end of the frame, if `StateVersion > lastSnapshotSequence`, the main thread takes a **snapshot** (an immutable DTO copy, target < 1 ms) and posts it to the queue. Several commands in one frame share one snapshot.
+- The queue worker serializes, hashes and writes on a **background thread**. It touches only the immutable snapshot, never live models.
+- **Lifecycle flush** (`OnApplicationPause(true)`, `OnApplicationFocus(false)` on Android, `OnApplicationQuit`): take a snapshot of the latest state, post it, and **block until `WhenDurable(thatSequence)`** completes, or 3 s pass. The flush never writes on its own; it only waits on the same queue, so G1 holds. iOS and Android give apps several seconds when backgrounding, far more than a save takes.
+- **Write failure** (for example, disk full): the previous save stays untouched and `lastDurableSequence` doesn't move. The failed snapshot goes back into the pending slot (unless a newer one is already there), and the queue retries with backoff (1 s, 2 s, 4 s … max 30 s). A non-blocking warning appears after 3 failures.
+- Implementation: a lock-protected pending slot plus one worker loop on `Task.Run` (works under IL2CPP on iOS and Android). No parallel per-write tasks. In tests the worker is replaced by a manual, step-by-step executor (`IBackgroundWorker`), so every interleaving is deterministic.
 
 ### 6.4 Critical transactions
 
@@ -220,15 +230,18 @@ Rewards are always committed through the normal path above. These commands are a
 
 | Transaction | Extra guarantee |
 |---|---|
-| IAP grant (Phase 8) | The grant and its transaction ID are saved, and the store purchase is confirmed (`ConfirmPendingPurchase`) only **after** that write completes. If the app dies first, the store re-delivers the purchase on next launch, and the saved transaction ID prevents a double grant |
+| IAP grant (Phase 8) | The grant and its transaction ID are applied as one command. The store purchase is confirmed (`ConfirmPendingPurchase`) only after `WhenDurable(sequence of that command)` completes (G6). Until then the purchase stays *pending* at the store. If the app dies, the store re-delivers it on next launch: if the saved state already contains the transaction ID, it's confirmed without a second grant; otherwise it's granted then. If the write keeps failing, the purchase is never confirmed, and the store eventually re-delivers or refunds it according to its own rules |
 | Rewarded-ad grant, Moonpetal spend | The UI shows the reward immediately, but the scheduler moves the write ahead of any lifecycle wait. A failed write raises the warning at once instead of after 3 retries |
 | Order delivery, restoration task, level-up, daily gift | Same as above |
 
 ### 6.5 Atomic write protocol
 
+0. Check G3: drop the snapshot if its sequence ≤ `lastDurableSequence`. Delete any leftover `save.tmp` (it can only be from an interrupted earlier write, which the loader already considered at startup).
 1. Serialize the envelope, write it to `save.tmp`, `FileStream.Flush(flushToDisk: true)`, close.
 2. If `save.json` exists: delete `save.bak`, then rename `save.json` → `save.bak`.
-3. Rename `save.tmp` → `save.json`.
+3. Rename `save.tmp` → `save.json`. The snapshot is now **durable**: set `lastDurableSequence` and complete any `WhenDurable` waiters.
+
+Because file contents are flushed before any rename, a power loss that undoes a rename (directory metadata not yet persisted) still leaves a complete, checksummed copy of either the old or the new save under one of the three names.
 
 `File.Replace` is deliberately **not** used: its behaviour on IL2CPP and Android file systems isn't guaranteed. The loader below makes every intermediate state recoverable.
 
@@ -243,17 +256,24 @@ Rewards are always committed through the normal path above. These commands are a
 ### 6.6 Load and recovery
 
 1. Read `save.json`, `save.tmp` and `save.bak` if present. For each: parse the envelope, verify `sha256`, check that `schemaVersion` is known or can be migrated.
-2. Choose the valid file with the **highest `sequence`**. If it isn't `save.json`, immediately rewrite it through the protocol so the file layout is normal again.
+2. Choose the valid file with the **highest `sequence`**. Set `StateVersion` to `max(readable sequences) + 1` and `lastDurableSequence` to the chosen sequence (G2). If the chosen file isn't `save.json`, post it to the write queue so the file layout is normalized through the same protocol (G1).
 3. Invalid files are renamed `save.corrupt-<utc>.json` (the newest 3 are kept) for support, never silently deleted.
 4. No files → new game. Files existed but none was valid → new game, plus a one-time notice that the save couldn't be restored (the quarantined copies allow manual recovery).
 
-**Placement (changed from v0.1):** the whole save stack lives in **`WorldTree.Core.Save`**, so that every interruption test runs in .NET CI: `SaveData` DTOs, `SaveEnvelope`, `SaveSerializer`, `SaveMigrator`, `AtomicSaveStore` over `IFileSystem`, `SaveScheduler` (background work behind `IBackgroundWorker`, so tests run synchronously), and `PhysicalFileSystem` (plain `System.IO`, engine-free). Platform supplies only the directory (`Application.persistentDataPath`), and App forwards the lifecycle callbacks.
+**Placement (changed from v0.1):** the whole save stack lives in **`WorldTree.Core.Save`**, so that every interruption test runs in .NET CI: `SaveData` DTOs, `SaveEnvelope`, `SaveSerializer`, `SaveMigrator`, `AtomicSaveStore` over `IFileSystem`, `SaveScheduler` (snapshots on command) and `SaveWriteQueue` (the single writer, background work behind `IBackgroundWorker`, so tests can run every interleaving step by step), and `PhysicalFileSystem` (plain `System.IO`, engine-free). Platform supplies only the directory (`Application.persistentDataPath`), and App forwards the lifecycle callbacks.
 
 ### 6.7 Interruption and recovery tests (Phase 1)
 
 | Test | Expectation |
 |---|---|
-| `FaultInjectingFileSystem` kills the write at **each** step in §6.5 (including a partial `tmp`) | The next load returns exactly the old state or exactly the new state, never a corrupted or empty one |
+| **Exhaustive crash test (G5):** run two consecutive writes (A then B) and, for every *k*, crash after the *k*-th file operation (each create, partial write, flush, delete and rename), including half-written `tmp` content | The next load returns exactly A or exactly B, never a corrupted or empty state, and never A when B was already durable |
+| Crash, recover, write again (for every *k* above) | The next write after recovery succeeds, and its sequence is greater than every sequence on disk |
+| **Stale snapshot (G3):** post a snapshot with sequence 5 after 7 is durable | Dropped. Disk still holds 7 |
+| **Coalescing (G4):** while write 1 is in flight, post snapshots 2, 3, 4 | Exactly one more write happens, and it contains 4. Snapshot 3 posted after 4 is ignored |
+| **One writer (G1):** lifecycle flush while a background write is in flight | The flush waits. The `FaultInjectingFileSystem` records no overlapping operations, and written sequences are strictly increasing |
+| **Durability (G6):** `WhenDurable(n)` with a crash injected before step 3 | Never completes. It completes only after the rename to `save.json` succeeds |
+| Failed write followed by a newer snapshot | The newer snapshot is written. The failed older one is not written afterwards |
+| **Threaded stress test:** 10,000 commands from the main thread at random intervals (seeded) with a real background worker | Written sequences are strictly increasing, and the final file equals the last snapshot |
 | `save.json` truncated, zero bytes, garbage, or wrong checksum | Falls back to the newest valid file and quarantines the bad one |
 | All three files invalid | New game, notice flag set, files quarantined |
 | Only `save.tmp` present | Loads it and normalizes the file layout |
@@ -264,6 +284,7 @@ Rewards are always committed through the normal path above. These commands are a
 | Scheduler: no state change | No write |
 | Full round-trip `GameSession` → disk → `GameSession` | Equal state, including RNG state and timers |
 | Duplicate purchase transaction ID (Phase 8) | Granted once |
+| Purchase confirmation waits on durability (Phase 8, with a fake store) | `ConfirmPendingPurchase` is not called before the rename to `save.json` succeeds. After a crash and re-delivery, it's granted exactly once |
 | ⚠ Device kill test (Phase 7, manual): force-stop the app 20 times during rapid merging | Every relaunch loads a consistent state |
 
 ### 6.8 Migrations and future extensions

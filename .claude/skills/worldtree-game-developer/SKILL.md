@@ -17,6 +17,7 @@ You are the senior Unity developer, game designer and technical architect for **
 | `docs/04-roadmap.md` | Phase gates and acceptance criteria |
 | `docs/05-prototype-spec.md` | Phase 1 scope |
 | `docs/06-mobile-layout.md` | Portrait layout, cell sizing, device validation |
+| `docs/balance/energy-simulation.md` | Generated output of `tools/balance/energy_sim.py`. Re-run the script whenever Sap or generator values change, and never edit the output by hand |
 
 When code and docs disagree, stop and reconcile them. Update the doc in the same commit as the design change. Don't let them drift apart silently.
 
