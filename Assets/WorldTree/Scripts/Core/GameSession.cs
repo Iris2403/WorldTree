@@ -1,9 +1,13 @@
 using System;
+using System.Collections.Generic;
 using WorldTree.Core.Board;
+using WorldTree.Core.Collection;
 using WorldTree.Core.Common;
 using WorldTree.Core.Content;
+using WorldTree.Core.Economy;
 using WorldTree.Core.Energy;
 using WorldTree.Core.Generators;
+using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 
 namespace WorldTree.Core
@@ -18,15 +22,29 @@ namespace WorldTree.Core
     {
         private readonly IClock _clock;
         private readonly XorShiftRandom _random;
+        private readonly List<GridPos> _cleansed = new List<GridPos>();
+        private readonly List<GridPos> _revealed = new List<GridPos>();
+        private readonly List<GridPos> _changedCells = new List<GridPos>();
+        private SaleRecord _lastSale;
 
         public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, uint randomState, IClock clock)
+            : this(catalog, board, energy, new Wallet(0), new Codex(), new Satchel(EconomyRules.StartingSatchelSlots), randomState, clock)
+        {
+        }
+
+        public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, Wallet wallet, Codex codex, Satchel satchel,
+            uint randomState, IClock clock)
         {
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Board = board ?? throw new ArgumentNullException(nameof(board));
             Energy = energy ?? throw new ArgumentNullException(nameof(energy));
+            Wallet = wallet ?? throw new ArgumentNullException(nameof(wallet));
+            Codex = codex ?? throw new ArgumentNullException(nameof(codex));
+            Satchel = satchel ?? throw new ArgumentNullException(nameof(satchel));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _random = new XorShiftRandom(randomState);
             Stats = new SessionStats(clock.UtcNow);
+            DiscoverVisibleSilently();
         }
 
         /// <summary>Raised after an item moved to an empty cell: (from, to).</summary>
@@ -38,11 +56,38 @@ namespace WorldTree.Core
         /// <summary>Raised after a merge: (from, to, result). The source cell is now empty.</summary>
         public event Action<GridPos, GridPos, ItemInstance> ItemsMerged;
 
+        /// <summary>
+        /// Raised after a merge for each cell that was cleansed or revealed, in row-major order,
+        /// after <see cref="ItemsMerged"/> (GDD §3.3 rule 6).
+        /// </summary>
+        public event Action<GridPos, CellState> CellStateChanged;
+
         /// <summary>Raised after a generator produced an item: (generator, target, item).</summary>
         public event Action<GridPos, GridPos, ItemInstance> ItemSpawned;
 
+        /// <summary>Raised on the first discovery of an item: (item ID, Glimmer reward).</summary>
+        public event Action<string, int> ItemDiscovered;
+
+        /// <summary>Raised after an item left the board into the satchel: (cell).</summary>
+        public event Action<GridPos> ItemStored;
+
+        /// <summary>Raised after an item came back from the satchel: (cell, item).</summary>
+        public event Action<GridPos, ItemInstance> ItemRetrieved;
+
+        /// <summary>Raised after an item was sold: (cell, Glimmer received).</summary>
+        public event Action<GridPos, int> ItemSold;
+
+        /// <summary>Raised after a sale was undone: (cell, item).</summary>
+        public event Action<GridPos, ItemInstance> SaleUndone;
+
         /// <summary>Raised when Sap changed through a command or debug action (not on passive regeneration).</summary>
         public event Action EnergyChanged;
+
+        /// <summary>Raised when Glimmer changed.</summary>
+        public event Action WalletChanged;
+
+        /// <summary>Raised when the satchel's contents changed.</summary>
+        public event Action SatchelChanged;
 
         /// <summary>Raised when generator states changed outside a tap (debug refresh).</summary>
         public event Action GeneratorsChanged;
@@ -50,6 +95,9 @@ namespace WorldTree.Core
         public ICatalog Catalog { get; }
         public BoardModel Board { get; }
         public EnergyModel Energy { get; }
+        public Wallet Wallet { get; }
+        public Codex Codex { get; }
+        public Satchel Satchel { get; }
         public SessionStats Stats { get; }
         public long StateVersion { get; private set; }
         public uint RandomState => _random.State;
@@ -65,6 +113,17 @@ namespace WorldTree.Core
             }
         }
 
+        /// <summary>Seconds left to undo the last sale, or 0 when nothing can be undone.</summary>
+        public double SellUndoSecondsLeft
+        {
+            get
+            {
+                if (_lastSale == null) return 0;
+                double left = (EconomyRules.SellUndoWindow - (_clock.UtcNow - _lastSale.SoldAtUtc)).TotalSeconds;
+                return left > 0 ? left : 0;
+            }
+        }
+
         public static GameSession NewGame(ICatalog catalog, BoardLayout layout, EnergyConfig energy, IClock clock, uint seed)
         {
             if (layout == null) throw new ArgumentNullException(nameof(layout));
@@ -72,14 +131,13 @@ namespace WorldTree.Core
             foreach (var placement in layout.Placements)
             {
                 var def = catalog.GetItem(placement.ItemId);
-                var generator = def.IsGenerator ? GeneratorRules.CreateFull(def.Generator) : null;
-                board.SetItem(placement.Pos, new ItemInstance(def.Id, generator));
+                board.SetItem(placement.Pos, new ItemInstance(def.Id, def.IsGenerator ? GeneratorRules.CreateFull(def.Generator) : null));
                 board.SetState(placement.Pos, placement.State);
             }
             return new GameSession(catalog, board, EnergyModel.Full(energy), seed, clock);
         }
 
-        /// <summary>Drags the item at <paramref name="from"/> onto <paramref name="to"/> (GDD §3.2, §4.3).</summary>
+        /// <summary>Drags the item at <paramref name="from"/> onto <paramref name="to"/> (GDD §3.2, §3.3, §4.3).</summary>
         public MoveDecision DragItem(GridPos from, GridPos to)
         {
             var decision = MergeRules.Resolve(Board, Catalog, from, to);
@@ -103,16 +161,7 @@ namespace WorldTree.Core
                     break;
 
                 case MoveKind.Merge:
-                    var resultDef = Catalog.GetItem(decision.ResultItemId);
-                    // Generator merges always produce a full generator of the new level, with no timer
-                    // running; the inputs' charges and timers are discarded (GDD §4.3).
-                    var resultGenerator = resultDef.IsGenerator ? GeneratorRules.CreateFull(resultDef.Generator) : null;
-                    var result = new ItemInstance(resultDef.Id, resultGenerator);
-                    Board.SetItem(from, null);
-                    Board.SetItem(to, result);
-                    Stats.Merges++;
-                    Changed();
-                    ItemsMerged?.Invoke(from, to, result);
+                    ApplyMerge(from, to, decision.ResultItemId);
                     break;
             }
             return decision;
@@ -138,9 +187,7 @@ namespace WorldTree.Core
             if (!Energy.TrySpend(def.Generator.SapCost, now)) return TapOutcome.Fail(TapResult.NotEnoughSap);
 
             GeneratorRules.ConsumeCharge(item.Generator, def.Generator, now);
-            var spawnedDef = Catalog.GetItem(def.Generator.Drops.Roll(_random));
-            var spawnedGenerator = spawnedDef.IsGenerator ? GeneratorRules.CreateFull(spawnedDef.Generator) : null;
-            var spawned = new ItemInstance(spawnedDef.Id, spawnedGenerator);
+            var spawned = CreateInstance(Catalog.GetItem(def.Generator.Drops.Roll(_random)));
             Board.SetItem(target, spawned);
 
             Stats.Taps++;
@@ -148,18 +195,101 @@ namespace WorldTree.Core
             Changed();
             ItemSpawned?.Invoke(pos, target, spawned);
             EnergyChanged?.Invoke();
+            DiscoverWithReward(spawned.ItemId);
             return new TapOutcome(TapResult.Spawned, target, spawned.ItemId);
+        }
+
+        /// <summary>Moves an Open item into the satchel (GDD §3.5).</summary>
+        public StoreResult StoreInSatchel(GridPos pos)
+        {
+            if (!Board.IsInside(pos)) return StoreResult.OutOfBounds;
+            var item = Board.GetItem(pos);
+            if (item == null) return StoreResult.Empty;
+            if (Board.GetState(pos) != CellState.Open) return StoreResult.Locked;
+            if (Satchel.IsFull) return StoreResult.SatchelFull;
+
+            Board.SetItem(pos, null);
+            Satchel.Add(item);
+            Changed();
+            ItemStored?.Invoke(pos);
+            SatchelChanged?.Invoke();
+            return StoreResult.Stored;
+        }
+
+        /// <summary>
+        /// Returns a satchel item to the nearest empty Open cell, measured from the bottom-centre of the
+        /// board (where the satchel button sits).
+        /// </summary>
+        public RetrieveResult RetrieveFromSatchel(int slot, out GridPos placedAt)
+        {
+            placedAt = default;
+            if (slot < 0 || slot >= Satchel.Count) return RetrieveResult.InvalidSlot;
+            var origin = new GridPos(Board.Width / 2, Board.Height - 1);
+            if (!Board.TryFindNearestEmptyOpen(origin, out placedAt)) return RetrieveResult.BoardFull;
+
+            var item = Satchel.RemoveAt(slot);
+            Board.SetItem(placedAt, item);
+            Changed();
+            ItemRetrieved?.Invoke(placedAt, item);
+            SatchelChanged?.Invoke();
+            return RetrieveResult.Retrieved;
+        }
+
+        /// <summary>"Return to Roots": sells an Open item for its sell value in Glimmer (GDD §3.5).</summary>
+        public SellResult SellItem(GridPos pos)
+        {
+            if (!Board.IsInside(pos)) return SellResult.OutOfBounds;
+            var item = Board.GetItem(pos);
+            if (item == null) return SellResult.Empty;
+            if (Board.GetState(pos) != CellState.Open) return SellResult.Locked;
+            var def = Catalog.GetItem(item.ItemId);
+            if (def.IsGenerator) return SellResult.NotSellable;
+
+            Board.SetItem(pos, null);
+            Wallet.AddGlimmer(def.SellValue);
+            _lastSale = new SaleRecord(pos, item, def.SellValue, _clock.UtcNow);
+            Changed();
+            ItemSold?.Invoke(pos, def.SellValue);
+            WalletChanged?.Invoke();
+            return SellResult.Sold;
+        }
+
+        /// <summary>
+        /// Undoes the last sale within <see cref="EconomyRules.SellUndoWindow"/>: the Glimmer is taken
+        /// back and the item returns to its cell, or to the nearest empty Open cell if that one is taken.
+        /// </summary>
+        public UndoSellResult UndoLastSale()
+        {
+            if (_lastSale == null) return UndoSellResult.NothingToUndo;
+            if (_clock.UtcNow - _lastSale.SoldAtUtc > EconomyRules.SellUndoWindow)
+            {
+                _lastSale = null;
+                return UndoSellResult.Expired;
+            }
+
+            var pos = _lastSale.Pos;
+            if (!Board.IsEmptyOpen(pos) && !Board.TryFindNearestEmptyOpen(pos, out pos)) return UndoSellResult.BoardFull;
+            if (!Wallet.TrySpendGlimmer(_lastSale.Value)) return UndoSellResult.NotEnoughGlimmer;
+
+            var item = _lastSale.Item;
+            Board.SetItem(pos, item);
+            _lastSale = null;
+            Changed();
+            SaleUndone?.Invoke(pos, item);
+            WalletChanged?.Invoke();
+            return UndoSellResult.Restored;
         }
 
         /// <summary>The generator state at <paramref name="pos"/> with any elapsed refresh applied, or null.</summary>
         public GeneratorState GetGeneratorState(GridPos pos)
         {
             if (!Board.IsInside(pos)) return null;
-            var item = Board.GetItem(pos);
-            if (item?.Generator == null) return null;
-            GeneratorRules.Refresh(item.Generator, Catalog.GetItem(item.ItemId).Generator, _clock.UtcNow);
-            return item.Generator;
+            return RefreshedGenerator(Board.GetItem(pos));
         }
+
+        /// <summary>The generator state of a satchel item with any elapsed refresh applied, or null.</summary>
+        public GeneratorState GetSatchelGeneratorState(int slot) =>
+            slot >= 0 && slot < Satchel.Count ? RefreshedGenerator(Satchel.Items[slot]) : null;
 
         public void DebugAddSap(int amount)
         {
@@ -179,10 +309,98 @@ namespace WorldTree.Core
                     GeneratorRules.ForceRefresh(item.Generator, Catalog.GetItem(item.ItemId).Generator);
                 }
             }
+            foreach (var item in Satchel.Items)
+            {
+                if (item.Generator != null) GeneratorRules.ForceRefresh(item.Generator, Catalog.GetItem(item.ItemId).Generator);
+            }
             Changed();
             GeneratorsChanged?.Invoke();
         }
 
+        private void ApplyMerge(GridPos from, GridPos to, string resultItemId)
+        {
+            // Cleansing is computed from the board as it was before the merge (GDD §3.3 rule 4).
+            Cleansing.Compute(Board, to, _cleansed, _revealed);
+
+            // Generator merges always produce a full generator of the new level, with no timer running;
+            // the inputs' charges and timers are discarded (GDD §4.3).
+            var result = CreateInstance(Catalog.GetItem(resultItemId));
+            Board.SetItem(from, null);
+            Board.SetItem(to, result);
+            foreach (var c in _cleansed) Board.SetState(c, CellState.Open);
+            foreach (var r in _revealed) Board.SetState(r, CellState.Withered);
+
+            Stats.Merges++;
+            Changed();
+            ItemsMerged?.Invoke(from, to, result);
+
+            _changedCells.Clear();
+            _changedCells.AddRange(_cleansed);
+            _changedCells.AddRange(_revealed);
+            _changedCells.Sort((a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+            foreach (var c in _changedCells) CellStateChanged?.Invoke(c, Board.GetState(c));
+
+            DiscoverWithReward(result.ItemId);
+            foreach (var c in _cleansed)
+            {
+                var freed = Board.GetItem(c);
+                if (freed != null) DiscoverWithReward(freed.ItemId);
+            }
+        }
+
+        private void DiscoverWithReward(string itemId)
+        {
+            if (!Codex.Discover(itemId)) return;
+            int reward = Catalog.GetItem(itemId).Level * EconomyRules.DiscoveryGlimmerPerLevel;
+            Wallet.AddGlimmer(reward);
+            ItemDiscovered?.Invoke(itemId, reward);
+            WalletChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Items the player can already see and use (Open cells, satchel) count as discovered without a
+        /// reward. Also brings saves from before the Codex existed up to date.
+        /// </summary>
+        private void DiscoverVisibleSilently()
+        {
+            for (int y = 0; y < Board.Height; y++)
+            {
+                for (int x = 0; x < Board.Width; x++)
+                {
+                    var p = new GridPos(x, y);
+                    var item = Board.GetItem(p);
+                    if (item != null && Board.GetState(p) == CellState.Open) Codex.Discover(item.ItemId);
+                }
+            }
+            foreach (var item in Satchel.Items) Codex.Discover(item.ItemId);
+        }
+
+        private GeneratorState RefreshedGenerator(ItemInstance item)
+        {
+            if (item?.Generator == null) return null;
+            GeneratorRules.Refresh(item.Generator, Catalog.GetItem(item.ItemId).Generator, _clock.UtcNow);
+            return item.Generator;
+        }
+
+        private static ItemInstance CreateInstance(ItemDef def) =>
+            new ItemInstance(def.Id, def.IsGenerator ? GeneratorRules.CreateFull(def.Generator) : null);
+
         private void Changed() => StateVersion++;
+
+        private sealed class SaleRecord
+        {
+            public SaleRecord(GridPos pos, ItemInstance item, int value, DateTime soldAtUtc)
+            {
+                Pos = pos;
+                Item = item;
+                Value = value;
+                SoldAtUtc = soldAtUtc;
+            }
+
+            public GridPos Pos { get; }
+            public ItemInstance Item { get; }
+            public int Value { get; }
+            public DateTime SoldAtUtc { get; }
+        }
     }
 }

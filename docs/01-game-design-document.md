@@ -92,7 +92,7 @@ Before          After merging A onto B
  .  B  W         .  *  .
 ```
 
-**Authoring rules (enforced by the data validator):** every Withered and Sealed cell holds an item; at least 6 Open cells exist at the start; every Sealed cell connects to a Withered cell through an orthogonal path of locked cells; every Withered cell has at least one orthogonal neighbour that is Open or can become Open. Together these guarantee that the whole board can always be unlocked.
+**Authoring rules (enforced by `BoardLayoutValidator` and *WorldTree → Validate Data*; refined in Phase 2, roadmap D28):** every Withered and Sealed cell holds an item; at least 6 Open cells exist at the start; the generators on Open cells hold at least 120 charges together (§4.2); and **every connected region of locked cells contains a Withered cell next to an Open cell**. That last condition is exactly what makes the whole board unlockable: merging beside that Withered cell cleanses it, which reveals its Sealed neighbours and opens new merge spots, so cleansing spreads through the region one step at a time. (A Sealed cell next to an Open cell, with no Withered cell in its region next to an Open cell, could never be revealed.)
 
 - **Tap** an item to select it and show its info panel (name, level, chain preview, sell value). **Tap a generator** to produce items (§4).
 - Drag starts after an 8 px (DPI-scaled) movement threshold. Below that, the input counts as a tap.

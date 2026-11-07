@@ -29,21 +29,56 @@ namespace WorldTree.EditorTools
             { PrototypeContent.WaterChain, new Color(0.4f, 0.65f, 0.98f) },
             { PrototypeContent.SeedPouchChain, new Color(0.9f, 0.7f, 0.35f) },
             { PrototypeContent.MoonwellChain, new Color(0.45f, 0.9f, 0.85f) },
+            { PrototypeContent.CraftChain, new Color(0.85f, 0.62f, 0.4f) },
+            { PrototypeContent.StumpChain, new Color(0.75f, 0.5f, 0.3f) },
         };
 
         [MenuItem("WorldTree/Setup/Build Prototype Scene")]
         public static void BuildPrototypeScene()
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            var database = CreateContentAssets();
+            bool overwrite = false;
+            if (AssetDatabase.LoadAssetAtPath<GameDatabase>(DatabasePath) != null || AssetDatabase.LoadAssetAtPath<GameDatabase>(OldDatabasePath) != null)
+            {
+                overwrite = EditorUtility.DisplayDialog("Update content assets?",
+                    "Content assets already exist. Update them to the latest defaults from the code?\n\n" +
+                    "Choose Update after pulling a new phase. Choose Keep if you edited the assets by hand.",
+                    "Update", "Keep");
+            }
+            var database = CreateContentAssets(overwrite);
             BuildScene(database);
             Debug.Log("[WorldTree] Prototype scene ready at " + ScenePath + ". Press Play.");
         }
 
-        [MenuItem("WorldTree/Setup/Create Content Assets Only")]
-        public static void CreateContentAssetsMenu()
+        [MenuItem("WorldTree/Setup/Update Content Assets to Code Defaults")]
+        public static void UpdateContentAssetsMenu()
         {
-            Selection.activeObject = CreateContentAssets();
+            if (!EditorUtility.DisplayDialog("Update content assets", "Overwrite all WorldTree content assets with the defaults from PrototypeContent?", "Update", "Cancel")) return;
+            Selection.activeObject = CreateContentAssets(overwrite: true);
+            Debug.Log("[WorldTree] Content assets updated. Use the Debug overlay's Reset save to start on the new board.");
+        }
+
+        [MenuItem("WorldTree/Validate Data")]
+        public static void ValidateData()
+        {
+            var database = AssetDatabase.LoadAssetAtPath<GameDatabase>(DatabasePath);
+            if (database == null)
+            {
+                EditorUtility.DisplayDialog("Validate Data", "No GameDatabase at " + DatabasePath + ". Run WorldTree → Setup → Build Prototype Scene.", "OK");
+                return;
+            }
+            var errors = new List<string>();
+            try
+            {
+                var catalog = database.BuildCatalog();
+                errors.AddRange(BoardLayoutValidator.Validate(database.BuildLayout(), catalog));
+            }
+            catch (System.Exception e)
+            {
+                errors.Add(e.Message);
+            }
+            foreach (var e in errors) Debug.LogError("[WorldTree] Data: " + e);
+            EditorUtility.DisplayDialog("Validate Data", errors.Count == 0 ? "All data is valid." : errors.Count + " problem(s). See the Console.", "OK");
         }
 
         [MenuItem("WorldTree/Debug/Delete Save Files")]
@@ -60,7 +95,7 @@ namespace WorldTree.EditorTools
             Debug.Log("[WorldTree] Deleted " + dir);
         }
 
-        private static GameDatabase CreateContentAssets()
+        private static GameDatabase CreateContentAssets(bool overwrite)
         {
             EnsureFolder(DataRoot + "/Chains");
             EnsureFolder(DataRoot + "/Generators");
@@ -77,7 +112,7 @@ namespace WorldTree.EditorTools
             foreach (var chain in PrototypeContent.BuildChains())
             {
                 string chainPath = DataRoot + "/Chains/Chain_" + AssetName(chain.Id) + ".asset";
-                chainAssets.Add(LoadOrCreate<ItemChainDefinition>(chainPath, asset =>
+                chainAssets.Add(LoadOrCreate<ItemChainDefinition>(chainPath, overwrite, asset =>
                 {
                     var levels = new List<ItemChainDefinition.Level>();
                     foreach (var item in chain.Levels)
@@ -92,12 +127,12 @@ namespace WorldTree.EditorTools
                 {
                     if (!item.IsGenerator) continue;
                     string genPath = DataRoot + "/Generators/Gen_" + AssetName(item.Id) + ".asset";
-                    generatorAssets.Add(LoadOrCreate<GeneratorDefinition>(genPath, asset => ConfigureGenerator(asset, item)));
+                    generatorAssets.Add(LoadOrCreate<GeneratorDefinition>(genPath, overwrite, asset => ConfigureGenerator(asset, item)));
                 }
             }
 
             var layoutDef = PrototypeContent.StartingLayout();
-            var layout = LoadOrCreate<BoardLayoutDefinition>(DataRoot + "/Boards/Board_Prototype.asset", asset =>
+            var layout = LoadOrCreate<BoardLayoutDefinition>(DataRoot + "/Boards/Board_Prototype.asset", overwrite, asset =>
             {
                 var cells = new List<BoardLayoutDefinition.Placement>();
                 foreach (var p in layoutDef.Placements)
@@ -105,10 +140,10 @@ namespace WorldTree.EditorTools
                 asset.Configure(layoutDef.Width, layoutDef.Height, cells);
             });
 
-            var energy = LoadOrCreate<EnergyConfigDefinition>(DataRoot + "/Config/Energy.asset", asset =>
+            var energy = LoadOrCreate<EnergyConfigDefinition>(DataRoot + "/Config/Energy.asset", overwrite, asset =>
                 asset.Configure(PrototypeContent.Energy.Cap, (float)PrototypeContent.Energy.RegenInterval.TotalSeconds));
 
-            var database = LoadOrCreate<GameDatabase>(DatabasePath, asset => { });
+            var database = LoadOrCreate<GameDatabase>(DatabasePath, false, asset => { });
             database.Configure(chainAssets, generatorAssets, layout, energy);
             EditorUtility.SetDirty(database);
             AssetDatabase.SaveAssets();
@@ -164,12 +199,21 @@ namespace WorldTree.EditorTools
             EditorBuildSettings.scenes = scenes.ToArray();
         }
 
-        private static T LoadOrCreate<T>(string path, System.Action<T> configureNew) where T : ScriptableObject
+        /// <summary>Loads an asset, creating it if missing. With <paramref name="overwrite"/> an existing asset is reconfigured.</summary>
+        private static T LoadOrCreate<T>(string path, bool overwrite, System.Action<T> configure) where T : ScriptableObject
         {
             var existing = AssetDatabase.LoadAssetAtPath<T>(path);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                if (overwrite)
+                {
+                    configure(existing);
+                    EditorUtility.SetDirty(existing);
+                }
+                return existing;
+            }
             var asset = ScriptableObject.CreateInstance<T>();
-            configureNew(asset);
+            configure(asset);
             AssetDatabase.CreateAsset(asset, path);
             return asset;
         }

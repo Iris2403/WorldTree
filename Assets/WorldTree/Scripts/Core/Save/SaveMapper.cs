@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using WorldTree.Core.Board;
+using WorldTree.Core.Collection;
 using WorldTree.Core.Common;
+using WorldTree.Core.Economy;
 using WorldTree.Core.Energy;
 using WorldTree.Core.Generators;
+using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 
 namespace WorldTree.Core.Save
@@ -23,6 +26,7 @@ namespace WorldTree.Core.Save
                 Sap = session.Energy.Amount,
                 SapNextTickUtcTicks = session.Energy.NextTickUtc?.Ticks,
                 RandomState = session.RandomState,
+                Glimmer = session.Wallet.Glimmer,
             };
             for (int y = 0; y < board.Height; y++)
             {
@@ -43,6 +47,18 @@ namespace WorldTree.Core.Save
                     });
                 }
             }
+            foreach (var item in session.Satchel.Items)
+            {
+                data.Satchel.Add(new SatchelItemData
+                {
+                    ItemId = item.ItemId,
+                    Charges = item.Generator?.Charges,
+                    RefreshEndsUtcTicks = item.Generator?.RefreshEndsUtc?.Ticks,
+                });
+            }
+            var discovered = new List<string>(session.Codex.Discovered);
+            discovered.Sort(StringComparer.Ordinal); // stable output: equal states produce equal files
+            data.Discovered.AddRange(discovered);
             return data;
         }
 
@@ -69,33 +85,55 @@ namespace WorldTree.Core.Save
                         warnings?.Add("Cell outside the board skipped: " + pos);
                         continue;
                     }
-
-                    ItemDef def = null;
-                    if (cell.ItemId != null && !catalog.TryGetItem(cell.ItemId, out def))
-                        warnings?.Add("Unknown item '" + cell.ItemId + "' at " + pos + " skipped");
-
-                    if (def != null)
-                    {
-                        GeneratorState generator = null;
-                        if (def.IsGenerator)
-                        {
-                            int charges = Math.Max(0, Math.Min(def.Generator.Capacity, cell.Charges ?? def.Generator.Capacity));
-                            var refreshEnds = FromTicks(cell.RefreshEndsUtcTicks, warnings);
-                            // A partly used generator must have a running cycle, or it would never refresh.
-                            if (charges < def.Generator.Capacity && refreshEnds == null)
-                                refreshEnds = clock.UtcNow + def.Generator.RefreshDuration;
-                            generator = new GeneratorState(charges, refreshEnds);
-                        }
-                        board.SetItem(pos, new ItemInstance(def.Id, generator));
-                    }
+                    var item = RestoreItem(cell.ItemId, cell.Charges, cell.RefreshEndsUtcTicks, catalog, clock, warnings, pos.ToString());
+                    if (item != null) board.SetItem(pos, item);
 
                     // Locked cells must hold an item (GDD §3.1); otherwise the cell is opened.
                     board.SetState(pos, board.GetItem(pos) == null ? CellState.Open : cell.State);
                 }
             }
 
+            var satchel = new Satchel(EconomyRules.StartingSatchelSlots);
+            if (data.Satchel != null)
+            {
+                foreach (var stored in data.Satchel)
+                {
+                    if (stored == null) continue;
+                    var item = RestoreItem(stored.ItemId, stored.Charges, stored.RefreshEndsUtcTicks, catalog, clock, warnings, "satchel");
+                    if (item != null) satchel.Restore(item);
+                }
+            }
+
+            var codex = new Codex();
+            if (data.Discovered != null)
+            {
+                foreach (var id in data.Discovered)
+                {
+                    if (id != null && catalog.TryGetItem(id, out _)) codex.Discover(id);
+                }
+            }
+
             var energy = new EnergyModel(energyConfig, Math.Max(0, data.Sap), FromTicks(data.SapNextTickUtcTicks, warnings));
-            return new GameSession(catalog, board, energy, data.RandomState, clock);
+            return new GameSession(catalog, board, energy, new Wallet(Math.Max(0, data.Glimmer)), codex, satchel, data.RandomState, clock);
+        }
+
+        private static ItemInstance RestoreItem(string itemId, int? charges, long? refreshTicks, ICatalog catalog, IClock clock,
+            List<string> warnings, string where)
+        {
+            if (itemId == null) return null;
+            if (!catalog.TryGetItem(itemId, out var def))
+            {
+                warnings?.Add("Unknown item '" + itemId + "' at " + where + " skipped");
+                return null;
+            }
+            if (!def.IsGenerator) return new ItemInstance(def.Id);
+
+            int restoredCharges = Math.Max(0, Math.Min(def.Generator.Capacity, charges ?? def.Generator.Capacity));
+            var refreshEnds = FromTicks(refreshTicks, warnings);
+            // A partly used generator must have a running cycle, or it would never refresh.
+            if (restoredCharges < def.Generator.Capacity && refreshEnds == null)
+                refreshEnds = clock.UtcNow + def.Generator.RefreshDuration;
+            return new ItemInstance(def.Id, new GeneratorState(restoredCharges, refreshEnds));
         }
 
         private static DateTime? FromTicks(long? ticks, List<string> warnings)

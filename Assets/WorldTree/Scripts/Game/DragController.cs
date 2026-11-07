@@ -81,6 +81,8 @@ namespace WorldTree.Game
 
         private void Begin(Vector2 screen)
         {
+            // Presses on HUD buttons or open panels belong to the UI, not the board.
+            if (_hud.IsOverUi(screen)) return;
             _pressing = true;
             _dragging = false;
             _pressScreen = screen;
@@ -122,6 +124,14 @@ namespace WorldTree.Game
             if (_dragging)
             {
                 _dragging = false;
+                if (_hud.IsOverSatchelButton(screen))
+                {
+                    _board.SnapBack(_origin);
+                    _board.EndDrag(_dragView);
+                    _dragView = null;
+                    _hud.StoreFromBoard(_origin);
+                    return;
+                }
                 var target = _board.WorldToCell(ScreenToWorld(screen));
                 var decision = _session.DragItem(_origin, target);
                 if (decision.Kind == MoveKind.Rejected || decision.Kind == MoveKind.NoOp) _board.SnapBack(_origin);
@@ -137,13 +147,15 @@ namespace WorldTree.Game
                 return;
             }
             _hud.Select(cell);
+            // Tapping selects; on a generator it also produces an item (GDD §3.2).
+            var def = _session.Catalog.GetItem(_session.Board.GetItem(cell).ItemId);
+            if (!def.IsGenerator || _session.Board.GetState(cell) != CellState.Open) return;
             var outcome = _session.TapCell(cell);
             switch (outcome.Result)
             {
                 case TapResult.BoardFull: _hud.ShowMessage("Board is full: merge or move items to make room"); break;
                 case TapResult.NotEnoughSap: _hud.ShowMessage("Not enough Sap"); break;
                 case TapResult.NoCharges: _hud.ShowMessage("Waiting for refresh"); break;
-                case TapResult.Locked: _hud.ShowMessage("Merge beside it to break the blight"); break;
             }
         }
 

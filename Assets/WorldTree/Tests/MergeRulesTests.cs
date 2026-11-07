@@ -34,11 +34,11 @@ namespace WorldTree.Tests
         [Test]
         public void MaxLevelSameIdSwaps()
         {
-            Put(_s, 0, 0, "item.nature.06");
-            Put(_s, 1, 0, "item.nature.06");
+            Put(_s, 0, 0, "item.nature.08");
+            Put(_s, 1, 0, "item.nature.08");
             Assert.AreEqual(MoveKind.Swap, _s.DragItem(P(0, 0), P(1, 0)).Kind);
-            Assert.AreEqual("item.nature.06", _s.Board.GetItem(P(0, 0)).ItemId);
-            Assert.AreEqual("item.nature.06", _s.Board.GetItem(P(1, 0)).ItemId);
+            Assert.AreEqual("item.nature.08", _s.Board.GetItem(P(0, 0)).ItemId);
+            Assert.AreEqual("item.nature.08", _s.Board.GetItem(P(1, 0)).ItemId);
         }
 
         [Test]
@@ -100,7 +100,7 @@ namespace WorldTree.Tests
         {
             Put(_s, 0, 0, "item.nature.01");
             Put(_s, 1, 0, "item.nature.01");
-            _s.Board.SetState(P(1, 0), CellState.Withered);
+            _s.Board.SetState(P(1, 0), CellState.Sealed);
             Assert.AreEqual(RejectReason.TargetLocked, _s.DragItem(P(0, 0), P(1, 0)).Reason);
             Assert.AreEqual(RejectReason.SourceLocked, _s.DragItem(P(1, 0), P(0, 0)).Reason);
         }
