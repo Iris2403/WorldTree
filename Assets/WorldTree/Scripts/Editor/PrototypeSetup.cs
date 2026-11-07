@@ -20,6 +20,8 @@ namespace WorldTree.EditorTools
         private const string Root = "Assets/WorldTree";
         private const string DataRoot = Root + "/Data";
         private const string ScenePath = Root + "/Scenes/Main.unity";
+        private const string DatabasePath = DataRoot + "/Resources/" + GameDatabase.ResourcesName + ".asset";
+        private const string OldDatabasePath = DataRoot + "/GameDatabase.asset";
 
         private static readonly Dictionary<string, Color> ChainColors = new Dictionary<string, Color>
         {
@@ -64,6 +66,11 @@ namespace WorldTree.EditorTools
             EnsureFolder(DataRoot + "/Generators");
             EnsureFolder(DataRoot + "/Boards");
             EnsureFolder(DataRoot + "/Config");
+            EnsureFolder(DataRoot + "/Resources");
+
+            // Earlier versions created the database outside Resources; move it so the runtime fallback finds it.
+            if (AssetDatabase.LoadAssetAtPath<GameDatabase>(OldDatabasePath) != null && AssetDatabase.LoadAssetAtPath<GameDatabase>(DatabasePath) == null)
+                AssetDatabase.MoveAsset(OldDatabasePath, DatabasePath);
 
             var chainAssets = new List<ItemChainDefinition>();
             var generatorAssets = new List<GeneratorDefinition>();
@@ -101,7 +108,7 @@ namespace WorldTree.EditorTools
             var energy = LoadOrCreate<EnergyConfigDefinition>(DataRoot + "/Config/Energy.asset", asset =>
                 asset.Configure(PrototypeContent.Energy.Cap, (float)PrototypeContent.Energy.RegenInterval.TotalSeconds));
 
-            var database = LoadOrCreate<GameDatabase>(DataRoot + "/GameDatabase.asset", asset => { });
+            var database = LoadOrCreate<GameDatabase>(DatabasePath, asset => { });
             database.Configure(chainAssets, generatorAssets, layout, energy);
             EditorUtility.SetDirty(database);
             AssetDatabase.SaveAssets();
@@ -142,6 +149,10 @@ namespace WorldTree.EditorTools
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddToBuildSettings(ScenePath);
+
+            if (so.FindProperty("database").objectReferenceValue == null)
+                Debug.LogError("[WorldTree] The Bootstrapper's GameDatabase reference wasn't set; it will fall back to Resources/" + GameDatabase.ResourcesName + ".");
+            Selection.activeObject = bootGo;
         }
 
         private static void AddToBuildSettings(string path)

@@ -28,12 +28,12 @@ namespace WorldTree.Game
 
         public void Move(Transform target, Vector3 to, float duration, float arcHeight = 0f)
         {
-            Start(new Tween { Kind = Kind.Move, Target = target, From = target.position, To = to, Arc = arcHeight, Duration = duration });
+            Add(new Tween { Kind = Kind.Move, Target = target, From = target.position, To = to, Arc = arcHeight, Duration = duration });
         }
 
         public void Pop(Transform target, float baseScale, float duration = 0.22f)
         {
-            Start(new Tween { Kind = Kind.Pop, Target = target, Duration = duration, BaseScale = baseScale });
+            Add(new Tween { Kind = Kind.Pop, Target = target, Duration = duration, BaseScale = baseScale });
         }
 
         /// <summary>Stops tweens on a transform (for example when it returns to a pool).</summary>
@@ -43,7 +43,8 @@ namespace WorldTree.Game
                 if (_tweens[i].Active && _tweens[i].Target == target) _tweens[i].Active = false;
         }
 
-        private void Start(Tween tween)
+        // Not named Start: Unity treats any MonoBehaviour method called Start as the lifecycle message.
+        private void Add(Tween tween)
         {
             tween.Active = true;
             int free = -1;
