@@ -1,0 +1,16 @@
+{
+    "name": "WorldTree.Data",
+    "rootNamespace": "WorldTree.Data",
+    "references": [
+        "WorldTree.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

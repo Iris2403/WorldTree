@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiles the engine-free WorldTree.Core sources and their NUnit tests directly from Assets/,
+    so gameplay rules are tested without a Unity Editor or license (architecture §9).
+    LangVersion 9 matches Unity 6's C# support; Newtonsoft 13.0.2 matches com.unity.nuget.newtonsoft-json 3.2.x.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>WorldTree.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../Assets/WorldTree/Scripts/Core/**/*.cs" />
+    <Compile Include="../../Assets/WorldTree/Tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+  </ItemGroup>
+
+</Project>
