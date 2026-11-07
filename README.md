@@ -2,7 +2,7 @@
 
 An original, mobile-first **Merge-2 fantasy puzzle game** built with Unity 6 and C#. Players restore a corrupted World Tree and its groves by merging items, running generators, fulfilling orders and uncovering the mystery behind the Witherblight.
 
-> **Status: Phase 0 (concept and planning), awaiting design approval.** There is no Unity project in the repository yet. Phase 1 adds the project skeleton and a playable prototype.
+> **Status: Phase 1 (playable graybox prototype) implemented, awaiting Unity Editor validation.** The engine-free gameplay core is covered by automated tests that run without Unity. The Unity layer has not yet been opened in the Editor; see the checklist in [`docs/04-roadmap.md`](docs/04-roadmap.md).
 
 ## Documentation
 
@@ -21,19 +21,33 @@ An original, mobile-first **Merge-2 fantasy puzzle game** built with Unity 6 and
 - Git (Git LFS recommended once real art is added)
 - Optional: .NET SDK 8+ to run the engine-independent Core tests locally
 
-## Setup (available once Phase 1 lands)
+## Run the Core tests (no Unity needed)
+
+```bash
+dotnet test tools/CoreTests
+```
+
+This compiles `Assets/WorldTree/Scripts/Core` and `Assets/WorldTree/Tests` directly with .NET 8. CI runs the same command on every push (`.github/workflows/core-tests.yml`).
+
+## Open the prototype in Unity
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/Iris2403/WorldTree.git
    ```
-2. In **Unity Hub → Add → Add project from disk**, select the cloned folder and open it with Unity 6 LTS. The first import generates `Library/`, `.meta` files and `ProjectSettings/`. Commit the generated `.meta` and `ProjectSettings/` files.
-3. One-time project settings: *Window → TextMeshPro → Import TMP Essential Resources*, and *Edit → Project Settings → Player → Active Input Handling* = **Input System Package (New)**. Commit the resulting files, plus the `Packages/packages-lock.json` Unity generates.
-4. Run **WorldTree → Setup → Build Prototype Scene**, open `Assets/WorldTree/Scenes/Main.unity` and press **Play**.
-5. Run tests in **Window → General → Test Runner** (EditMode). Core tests can also run without Unity:
-   ```bash
-   dotnet test tools/CoreTests
-   ```
+2. **Unity Hub → Add → Add project from disk**, pick the cloned folder, and open it with **Unity 6.3 LTS**. The repository has no `ProjectSettings/` yet, so Unity creates them on first open, along with `Library/` and `.meta` files.
+   - If Hub won't add the folder, start the editor directly with `-projectPath`:
+     ```bash
+     "<path to Unity 6000.3.x editor>" -projectPath "<path to WorldTree>"
+     ```
+3. When Unity asks to enable the new Input System backends and restart, choose **Yes**. Then check *Edit → Project Settings → Player → Active Input Handling* = **Input System Package (New)**.
+4. *Window → TextMeshPro → Import TMP Essential Resources*.
+5. **WorldTree → Setup → Build Prototype Scene**. This creates the content assets under `Assets/WorldTree/Data/` and `Assets/WorldTree/Scenes/Main.unity`, then opens the scene.
+6. Press **Play**. Click or touch a framed generator (G1) to grow items, and drag matching items together. The **Debug** button (bottom right) shows seconds-per-Sap statistics and debug actions.
+7. Run the tests in *Window → General → Test Runner → EditMode*.
+8. Commit what Unity generated: all `.meta` files, `ProjectSettings/`, `Packages/packages-lock.json`, `Assets/TextMesh Pro/`, and the new assets under `Assets/WorldTree/Data/` and `Assets/WorldTree/Scenes/`.
+
+Save files live in `Application.persistentDataPath/save/`. *WorldTree → Debug → Delete Save Files* removes them.
 
 ## Development workflow
 

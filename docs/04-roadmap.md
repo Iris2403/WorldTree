@@ -63,13 +63,30 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D24 | Extras removed | Optional native directory-sync hook removed. One quarantined corrupt save instead of three | No demonstrated need. Re-add only if device testing shows one |
 | D25 | Mobile layout | `docs/06-mobile-layout.md` stays the target for Phase 6. Phase 1 only fits the board into the portrait safe area | Part of D19 |
 
-## Phase 1: Project architecture and playable prototype ⬜
+## Phase 1: Project architecture and playable prototype 🔄
 
 **Deliverables:** Unity project skeleton (manifest, five asmdefs, folders), Core models for board, merge, generators (first-tap refresh, Lv1 → Lv2 merging) and energy, `GameSession`, the synchronous atomic save stack with crash-recovery tests, ScriptableObject content definitions, an Editor menu that creates the content assets and the prototype scene, a graybox portrait board with drag input, a basic HUD, a debug statistics overlay, and Core tests plus .NET CI. Full scope in `05-prototype-spec.md`.
 
 **Acceptance:** `dotnet test tools/CoreTests` passes locally and in CI, including the crash-recovery tests. In Unity the player can generate, drag, merge, and see Sap drain and regenerate. State survives an app restart, including one right after a merge.
 
-**⚠ Editor validation:** packages resolve and the resolved `manifest.json` / `packages-lock.json` are committed, TMP Essential Resources are imported, Active Input Handling is set to the Input System, everything compiles, *WorldTree → Setup → Build Prototype Scene* builds a working scene, drag feels responsive with mouse and touch (Device Simulator), the board fits on a portrait phone screen, and the tests pass in Test Runner.
+**Status:**
+- ✅ Core gameplay, save stack and content in pure C# (`Assets/WorldTree/Scripts/Core`)
+- ✅ Automated tests: 59 passing via `dotnet test tools/CoreTests`, including the exhaustive process-kill test (verified to fail against a deliberately broken protocol). CI workflow added
+- ✅ Unity layer written (`Data`, `Game`, `Editor`, manifest). Syntax-checked with Roslyn and type-checked against the real Core plus minimal Unity API stubs. **Not yet compiled in Unity**
+- ⬜ Unity Editor validation (checklist below)
+
+**⚠ Editor validation checklist (to be run by the user in Unity 6.3 LTS, steps in README):**
+- [ ] The project opens and packages resolve. Commit the resolved `manifest.json` and `packages-lock.json`
+- [ ] No compile errors. Specifically check the asmdef references `Unity.TextMeshPro`, `Unity.InputSystem`, `UnityEngine.UI`, and the precompiled `Newtonsoft.Json.dll` in `WorldTree.Core` and `WorldTree.Tests`
+- [ ] Active Input Handling = Input System Package (New), and TMP Essential Resources imported
+- [ ] *WorldTree → Setup → Build Prototype Scene* creates the assets and `Main.unity` without errors
+- [ ] Play: the board, both generators (G1) and level-1 items are visible and the board fits the Game view in portrait
+- [ ] Tapping a generator spawns an item with an arc and lowers Sap. The HUD shows "+1 in m:ss" and the selected generator's charges and "Full refresh in m:ss"
+- [ ] Dragging identical items merges them with a pop. Different items swap. Dropping outside the board snaps back. Two Seed Pouch G1 merge into a full G2
+- [ ] Stop Play right after a merge, press Play again: the board and Sap are restored
+- [ ] Debug overlay: statistics update, and +10 Sap, Refresh all generators now and Reset save all work
+- [ ] Device Simulator (iPhone SE and a 20:9 Android): the board fits in the safe area, and touch drag lifts the item above the finger
+- [ ] Test Runner → EditMode: all `WorldTree.Tests` tests pass
 
 ## Phase 2: Merge board and item progression ⬜
 

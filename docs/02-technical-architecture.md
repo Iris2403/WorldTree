@@ -193,7 +193,7 @@ Mobile operating systems can kill the app at any moment, without `OnApplicationQ
 ### 6.2 Format
 
 - **Payload:** JSON (Newtonsoft) of `SaveData` DTOs defined in Core: plain classes, lists instead of engine types, timestamps as UTC ticks.
-- **Contents:** board cells (state, item ID, generator charges and `refreshEndsUtc`), Sap and next regen tick, RNG state, session statistics. Later phases add wallet, XP, codex, orders, quests, settings and processed purchase IDs.
+- **Contents:** board cells (state, item ID, generator charges and `refreshEndsUtc`), Sap and next regen tick, RNG state. (Debug session statistics aren't saved: each launch starts a new measurement.) Later phases add wallet, XP, codex, orders, quests, settings and processed purchase IDs.
 - **Envelope:** `{ formatVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` increases by 1 with every write and continues from the highest sequence found on disk at startup, so the loader can always tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
 - All time-based state uses **absolute UTC timestamps**, so a rollback to an older save never distorts timers.
 
@@ -238,7 +238,7 @@ Mobile operating systems can kill the app at any moment, without `OnApplicationQ
 1. Read `save.json`, `save.tmp` and `save.bak` if present. For each: parse the envelope, verify `sha256`, check that `formatVersion` is known.
 2. Choose the valid file with the **highest `sequence`**. The next write continues from the highest sequence among all readable files.
 3. If the chosen file isn't `save.json`, write it again immediately through the protocol, so the file layout is normal again.
-4. Invalid files: the most recent one is kept as `save.corrupt.json` for support (one file, overwritten), never silently deleted.
+4. Invalid files: the highest-priority one (`save.json`, then `save.bak`) is kept as `save.corrupt.json` for support (one file, overwritten), never silently deleted. An unfinished `save.tmp` is expected after an interrupted write and isn't treated as corruption.
 5. No files → new game. Files existed but none was valid → new game, plus a one-time notice that the save couldn't be restored.
 
 **Placement:** the save stack lives in **`WorldTree.Core.Save`** (`SaveData`, `SaveEnvelope`, `SaveSerializer`, `SaveMapper`, `AtomicSaveStore`, `IFileSystem`, `PhysicalFileSystem`), so every recovery test runs in .NET CI. The Game assembly supplies the directory (`Application.persistentDataPath`) and the lifecycle callbacks.
