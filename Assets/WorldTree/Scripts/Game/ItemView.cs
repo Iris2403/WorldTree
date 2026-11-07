@@ -29,11 +29,12 @@ namespace WorldTree.Game
             return view;
         }
 
-        public void Bind(Sprite sprite, Color color, string label, float scale)
+        public void Bind(Sprite sprite, Color color, string label, Color labelColor, float scale)
         {
             _body.sprite = sprite;
             _body.color = color;
             _label.text = label;
+            _label.color = labelColor;
             BaseScale = scale;
             transform.localScale = Vector3.one * scale;
         }

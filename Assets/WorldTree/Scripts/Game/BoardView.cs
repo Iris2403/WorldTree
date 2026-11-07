@@ -23,6 +23,7 @@ namespace WorldTree.Game
 
         private static readonly Color CellColor = new Color(0.17f, 0.23f, 0.2f);
         private static readonly Color BackdropColor = new Color(0.09f, 0.12f, 0.11f);
+        private static readonly Color ItemLabelColor = new Color(0.08f, 0.1f, 0.12f);
 
         private GameSession _session;
         private GameDatabase _database;
@@ -186,9 +187,10 @@ namespace WorldTree.Game
             Color color = Color.magenta;
             if (_database != null && _database.TryGetVisual(item.ItemId, out var chain, out _)) color = chain.Color;
             if (def.IsGenerator)
-                view.Bind(PlaceholderArt.Frame, color, "G" + def.Level, 0.9f);
+                // Generators are hollow frames over a dark cell, so their label must be light to stay readable.
+                view.Bind(PlaceholderArt.Frame, color, "G" + def.Level, Color.Lerp(color, Color.white, 0.6f), 0.9f);
             else
-                view.Bind(PlaceholderArt.Circle, Color.Lerp(color, Color.white, (def.Level - 1) * 0.08f), def.Level.ToString(), 0.6f + 0.05f * def.Level);
+                view.Bind(PlaceholderArt.Circle, Color.Lerp(color, Color.white, (def.Level - 1) * 0.08f), def.Level.ToString(), ItemLabelColor, 0.6f + 0.05f * def.Level);
             view.SetSorting(ItemOrder);
         }
 

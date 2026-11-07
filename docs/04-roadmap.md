@@ -74,19 +74,19 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Core gameplay, save stack and content in pure C# (`Assets/WorldTree/Scripts/Core`)
 - ✅ Automated tests: 59 passing via `dotnet test tools/CoreTests`, including the exhaustive process-kill test (verified to fail against a deliberately broken protocol). CI workflow added
 - ✅ Unity layer written (`Data`, `Game`, `Editor`, manifest). Syntax-checked with Roslyn and type-checked against the real Core plus minimal Unity API stubs. **Not yet compiled in Unity**
-- ⬜ Unity Editor validation (checklist below)
+- 🔄 Unity Editor validation: play-tested by the user in Unity 6.6. Remaining: tests don't show in the Unity Test Runner yet (they pass in .NET CI), and the generated project files must be committed
 
 **⚠ Editor validation checklist (to be run by the user in Unity 6.3 LTS, steps in README):**
-- [ ] The project opens and packages resolve. Commit the resolved `manifest.json` and `packages-lock.json`
-- [ ] No compile errors. Specifically check the asmdef references `Unity.TextMeshPro`, `Unity.InputSystem`, `UnityEngine.UI`, and the precompiled `Newtonsoft.Json.dll` in `WorldTree.Core` and `WorldTree.Tests`
-- [ ] Active Input Handling = Input System Package (New), and TMP Essential Resources imported
-- [ ] *WorldTree → Setup → Build Prototype Scene* creates the assets and `Main.unity` without errors
-- [ ] Play: the board, both generators (G1) and level-1 items are visible and the board fits the Game view in portrait
-- [ ] Tapping a generator spawns an item with an arc and lowers Sap. The HUD shows "+1 in m:ss" and the selected generator's charges and "Full refresh in m:ss"
-- [ ] Dragging identical items merges them with a pop. Different items swap. Dropping outside the board snaps back. Two Seed Pouch G1 merge into a full G2
-- [ ] Stop Play right after a merge, press Play again: the board and Sap are restored
-- [ ] Debug overlay: statistics update, and +10 Sap, Refresh all generators now and Reset save all work
-- [ ] Device Simulator (iPhone SE and a 20:9 Android): the board fits in the safe area, and touch drag lifts the item above the finger
+- [x] The project opens and packages resolve (opened in Unity 6.6, 6000.6.7f1). Still to do: Commit the resolved `manifest.json` and `packages-lock.json`
+- [x] No compile errors (after fixing Tweener's `Start` name clash and adding the GameDatabase Resources fallback). Specifically check the asmdef references `Unity.TextMeshPro`, `Unity.InputSystem`, `UnityEngine.UI`, and the precompiled `Newtonsoft.Json.dll` in `WorldTree.Core` and `WorldTree.Tests`
+- [x] Active Input Handling = Input System Package (New), and TMP Essential Resources imported
+- [x] *WorldTree → Setup → Build Prototype Scene* creates the assets and `Main.unity` without errors
+- [x] Play: the board, both generators (G1) and level-1 items are visible and the board fits the Game view in portrait
+- [x] Tapping a generator spawns an item with an arc and lowers Sap. The HUD shows "+1 in m:ss" and the selected generator's charges and "Full refresh in m:ss"
+- [x] Dragging identical items merges them with a pop. Different items swap. Dropping outside the board snaps back. Two Seed Pouch G1 merge into a full G2
+- [x] Stop Play right after a merge, press Play again: the board and Sap are restored
+- [x] Debug overlay: statistics update, and +10 Sap, Refresh all generators now and Reset save all work
+- [x] Device Simulator (iPhone SE and a 20:9 Android): the board fits in the safe area, and touch drag lifts the item above the finger
 - [ ] Test Runner → EditMode: all `WorldTree.Tests` tests pass
 
 ## Phase 2: Merge board and item progression ⬜
