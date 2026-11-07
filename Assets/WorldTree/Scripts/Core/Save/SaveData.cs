@@ -16,5 +16,10 @@ namespace WorldTree.Core.Save
         public int Sap;
         public long? SapNextTickUtcTicks;
         public uint RandomState;
+
+        // Phase 2. Absent in Phase 1 saves, which then load with the defaults below.
+        public int Glimmer;
+        public List<SatchelItemData> Satchel = new List<SatchelItemData>();
+        public List<string> Discovered = new List<string>();
     }
 }
