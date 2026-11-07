@@ -1,0 +1,20 @@
+{
+    "name": "WorldTree.Game",
+    "rootNamespace": "WorldTree.Game",
+    "references": [
+        "WorldTree.Core",
+        "WorldTree.Data",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

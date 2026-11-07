@@ -1,0 +1,20 @@
+{
+    "name": "WorldTree.Editor",
+    "rootNamespace": "WorldTree.EditorTools",
+    "references": [
+        "WorldTree.Core",
+        "WorldTree.Data",
+        "WorldTree.Game"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
