@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4868dc199ef24adc96e7ddb480a3b0f, type: 3}
+  m_Name: GameDatabase
+  m_EditorClassIdentifier: WorldTree.Data::WorldTree.Data.GameDatabase
+  chains:
+  - {fileID: 11400000, guid: 3f246ad31fd404f87be9800c671dad95, type: 2}
+  - {fileID: 11400000, guid: 1d9dab00668024a7ebdaee8c480da4a2, type: 2}
+  - {fileID: 11400000, guid: 412c46f843ada4865931578d2f89138c, type: 2}
+  - {fileID: 11400000, guid: 2c4649d8613a342b6b55def0bfe45698, type: 2}
+  generators:
+  - {fileID: 11400000, guid: 35ebc61e7ee384443b2a552130164c2b, type: 2}
+  - {fileID: 11400000, guid: 1a652501e4ba24430a4ca85579732578, type: 2}
+  - {fileID: 11400000, guid: d515734649ec142abbb59731497fbe74, type: 2}
+  startingLayout: {fileID: 11400000, guid: f0293d987d4124f9c9952fda5b84827f, type: 2}
+  energy: {fileID: 11400000, guid: 2498bbf56d3634fdeb1e98e709024df4, type: 2}

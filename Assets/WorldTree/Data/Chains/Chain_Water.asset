@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c31c01865b1544f98d86d3914c02393, type: 3}
+  m_Name: Chain_Water
+  m_EditorClassIdentifier: WorldTree.Data::WorldTree.Data.ItemChainDefinition
+  chainId: chain.water
+  color: {r: 0.4, g: 0.65, b: 0.98, a: 1}
+  levels:
+  - id: item.water.01
+    displayName: Dewdrop
+    sellValue: 1
+    icon: {fileID: 0}
+  - id: item.water.02
+    displayName: Water Flask
+    sellValue: 2
+    icon: {fileID: 0}
+  - id: item.water.03
+    displayName: Moon Pitcher
+    sellValue: 4
+    icon: {fileID: 0}
+  - id: item.water.04
+    displayName: Spring Basin
+    sellValue: 8
+    icon: {fileID: 0}
+  - id: item.water.05
+    displayName: Crystal Fount
+    sellValue: 16
+    icon: {fileID: 0}
+  - id: item.water.06
+    displayName: Moonwell
+    sellValue: 32
+    icon: {fileID: 0}

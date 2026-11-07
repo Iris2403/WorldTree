@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c31c01865b1544f98d86d3914c02393, type: 3}
+  m_Name: Chain_Nature
+  m_EditorClassIdentifier: WorldTree.Data::WorldTree.Data.ItemChainDefinition
+  chainId: chain.nature
+  color: {r: 0.45, g: 0.8, b: 0.4, a: 1}
+  levels:
+  - id: item.nature.01
+    displayName: Glimmerseed
+    sellValue: 1
+    icon: {fileID: 0}
+  - id: item.nature.02
+    displayName: Sprout
+    sellValue: 2
+    icon: {fileID: 0}
+  - id: item.nature.03
+    displayName: Sapling
+    sellValue: 4
+    icon: {fileID: 0}
+  - id: item.nature.04
+    displayName: Blossom Shrub
+    sellValue: 8
+    icon: {fileID: 0}
+  - id: item.nature.05
+    displayName: Young Oak
+    sellValue: 16
+    icon: {fileID: 0}
+  - id: item.nature.06
+    displayName: Elder Oak
+    sellValue: 32
+    icon: {fileID: 0}
