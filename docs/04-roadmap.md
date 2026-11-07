@@ -74,10 +74,10 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Core gameplay, save stack and content in pure C# (`Assets/WorldTree/Scripts/Core`)
 - ✅ Automated tests: 59 passing via `dotnet test tools/CoreTests`, including the exhaustive process-kill test (verified to fail against a deliberately broken protocol). CI workflow added
 - ✅ Unity layer written (`Data`, `Game`, `Editor`, manifest). Syntax-checked with Roslyn and type-checked against the real Core plus minimal Unity API stubs. **Not yet compiled in Unity**
-- 🔄 Unity Editor validation: play-tested by the user in Unity 6.6. Remaining: tests don't show in the Unity Test Runner yet (they pass in .NET CI), and the generated project files must be committed
+- 🔄 Unity Editor validation: play-tested by the user in Unity 6.6. Unity-generated project files committed by the user. Remaining: tests don't show in the Unity Test Runner yet (they pass in .NET CI)
 
 **⚠ Editor validation checklist (to be run by the user in Unity 6.3 LTS, steps in README):**
-- [x] The project opens and packages resolve (opened in Unity 6.6, 6000.6.7f1). Still to do: Commit the resolved `manifest.json` and `packages-lock.json`
+- [x] The project opens and packages resolve (opened in Unity 6.6, 6000.6.7f1). Resolved `manifest.json` and `packages-lock.json` committed
 - [x] No compile errors (after fixing Tweener's `Start` name clash and adding the GameDatabase Resources fallback). Specifically check the asmdef references `Unity.TextMeshPro`, `Unity.InputSystem`, `UnityEngine.UI`, and the precompiled `Newtonsoft.Json.dll` in `WorldTree.Core` and `WorldTree.Tests`
 - [x] Active Input Handling = Input System Package (New), and TMP Essential Resources imported
 - [x] *WorldTree → Setup → Build Prototype Scene* creates the assets and `Main.unity` without errors
