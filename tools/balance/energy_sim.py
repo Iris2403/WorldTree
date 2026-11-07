@@ -4,32 +4,51 @@
 Design-time balance tool (no game dependency, no randomness). It reproduces the
 energy numbers in docs/01-game-design-document.md section 5.1 from explicit
 session schedules, and checks whether sessions are limited by Sap or by
-generator charges.
+generator charges under several player tap strategies.
 
 Usage:
     python3 tools/balance/energy_sim.py > docs/balance/energy-simulation.md
 
 The Phase 4 balance simulator (C#, built on WorldTree.Core) will supersede this
-script. Until then, any change to Sap or generator values must be re-run here.
+script and must reproduce its numbers for the same inputs. Until then, any
+change to Sap or generator values must be re-run here.
 
-Model (mirrors GDD section 5 exactly):
+Model (mirrors GDD sections 4 and 5 exactly):
 - Time is simulated in whole seconds. Sap is an integer.
 - Regeneration: +1 Sap every REGEN_S seconds while Sap < CAP. The regen timer
   starts when Sap drops below the cap (spend at t -> next tick at t + REGEN_S)
   and stops when Sap reaches the cap. Time spent at the cap generates nothing
   and is reported as "regen lost".
-- A session starts at a scheduled time. The player performs one generator tap
-  every SECONDS_PER_SAP seconds (merging/delivering happens between taps).
+- A session starts at a scheduled time. The player makes one generator tap
+  every SECONDS_PER_SAP seconds (merging and delivering happen between taps).
   Each tap costs 1 Sap and 1 generator charge.
-- The session ends at the first of: Sap = 0 ("sap"), no generator has a charge
-  ("generator"), or MAX_SESSION_S elapsed ("time").
-- Generator refill rule (selectable, see RULES):
-    "on-empty":     recharge starts only when charges reach 0 (GDD v0.2).
-    "on-first-tap": the refill timer starts at the first tap taken while the
-                    generator is full; when it ends the generator refills to
-                    full capacity, whatever is left (GDD v0.3 proposal).
-- Tap policy "balanced": always tap the generator with the most charges
-  (worst case for stalls, because all generators run dry together).
+- The session ends at the first of: Sap = 0 ("sap"), the strategy finds no
+  generator it is willing to tap ("generator" stall), or MAX_SESSION_S elapsed
+  ("time"). Sap left at a generator stall is "stranded": it isn't lost, it is
+  carried into the next session, but it shortens the time until the bar is
+  full again, so it costs regeneration.
+- Generator refill rules (see RULES):
+    "on-empty":      the refill timer starts only when charges reach 0 (GDD v0.2).
+    "on-first-tap":  a fixed refresh timer starts at the first tap taken while
+                     the generator is full; when it ends the generator returns
+                     to full capacity, however many charges are left (GDD v0.3+).
+- Orders (deterministic): an endless queue repeats ORDER_PATTERNS[pattern].
+  Each order needs N taps from one generator's chain (a simplification of
+  "items worth N level-1 equivalents"). Three orders are active at a time, and
+  order progress persists across sessions. A tap counts toward the oldest
+  active order of the tapped chain; a tap no active order needs is "off-order"
+  (stockpiling). Completed orders are replaced from the queue at once.
+- Player tap strategies (see STRATEGIES):
+    "balanced":      tap the generator with the most charges left (spreads
+                     taps, so each generator empties as late as possible).
+    "focused":       tap only the Seed Pouch (generator 0) all session, even
+                     when other generators have charges.
+    "order-driven":  tap the chain of the oldest active order; if that
+                     generator is empty, switch to the chain of the next active
+                     order that has charges; stop if no active order's
+                     generator has a charge (the player won't stockpile).
+    "strict-order" (sensitivity): only ever tap the oldest active order's
+                     chain; stop as soon as that generator is empty.
 - Only regeneration is counted. Level-up refills, Daily Gift and chests are
   excluded so the baseline is conservative and reproducible.
 """
@@ -43,6 +62,12 @@ REGEN_S = 120
 MAX_SESSION_S = 20 * 60
 DAY_S = 24 * 3600
 DAYS = 7
+ACTIVE_ORDERS = 3
+REFILL_S = 20 * 60  # Lv1 refresh timer
+
+RULES = ("on-empty", "on-first-tap")
+STRATEGIES = ("balanced", "focused", "order-driven", "strict-order")
+GEN_NAMES = ("Seed Pouch", "Moonwell Spring")
 
 
 def hm(h: int, m: int = 0) -> int:
@@ -53,41 +78,56 @@ PROFILES: dict[str, list[int]] = {
     "Light (2 sessions)": [hm(8), hm(20)],
     "Core (4 sessions)": [hm(8), hm(12, 30), hm(17, 30), hm(21, 30)],
     "Engaged (6 sessions)": [hm(8), hm(10, 30), hm(13), hm(15, 30), hm(18), hm(20, 30)],
-    # Reference only: a session every 3 h 20 min around the clock, so Sap is
-    # (almost) never at the cap. Shows how close real play can get to 720/day.
-    "Reference: every 3h20m, 24/7": [i * hm(3, 20) for i in range(8)][:7] + [hm(23, 20)],
+    # Reference only: 8 sessions at 00:00, 03:20, ... 20:00, 23:20, so Sap is
+    # never at the cap. Shows how close real play can get to 720/day.
+    "Reference: every 3h20m, 24/7": [i * hm(3, 20) for i in range(7)] + [hm(23, 20)],
+}
+
+# (generator index, taps needed). Sizes follow GDD 5.1: an early order costs
+# roughly 8-20 Sap.
+ORDER_PATTERNS: dict[str, list[tuple[int, int]]] = {
+    "even": [(0, 12), (1, 10), (0, 8), (1, 14), (0, 16), (1, 8), (0, 10), (1, 12)],
+    "a-heavy": [(0, 12), (0, 8), (1, 10), (0, 16), (0, 10), (1, 8), (0, 14), (1, 12), (0, 20)],
+    # A 60% demand cap with at most 2 consecutive orders from one chain
+    # (shown to be insufficient).
+    "capped-60": [(0, 12), (0, 8), (1, 10), (0, 16), (1, 8), (0, 10), (0, 14), (1, 12), (1, 10)],
+    # GDD 6.2 demand rule: no chain above 55% of order demand, at most 2
+    # consecutive orders from one chain.
+    "capped-55": [(0, 12), (1, 10), (0, 8), (0, 14), (1, 12), (0, 10), (1, 9), (0, 16), (1, 18)],
 }
 
 
-RULES = ("on-empty", "on-first-tap")
+def pattern_share(pattern: str) -> float:
+    p = ORDER_PATTERNS[pattern]
+    return sum(n for g, n in p if g == 0) / sum(n for _, n in p)
 
 
 @dataclass
 class Generator:
     capacity: int
-    recharge_s: int
+    refill_s: int
     rule: str = "on-first-tap"
     charges: int = -1
-    recharge_end: int | None = None
+    refill_end: int | None = None
 
     def __post_init__(self) -> None:
         if self.charges < 0:
             self.charges = self.capacity
 
     def refresh(self, t: int) -> None:
-        if self.recharge_end is not None and t >= self.recharge_end:
+        if self.refill_end is not None and t >= self.refill_end:
             self.charges = self.capacity
-            self.recharge_end = None
+            self.refill_end = None
 
     def tap(self, t: int) -> None:
         if self.rule == "on-first-tap":
-            if self.recharge_end is None:
-                self.recharge_end = t + self.recharge_s
+            if self.refill_end is None:
+                self.refill_end = t + self.refill_s
             self.charges -= 1
         else:
             self.charges -= 1
             if self.charges == 0:
-                self.recharge_end = t + self.recharge_s
+                self.refill_end = t + self.refill_s
 
 
 @dataclass
@@ -99,7 +139,6 @@ class Energy:
     seconds_at_cap: int = 0
 
     def advance(self, t: int) -> None:
-        # Integrate time at cap between last_t and t, applying regen ticks.
         cursor = self.last_t
         while self.next_tick is not None and self.next_tick <= t:
             cursor = self.next_tick
@@ -121,25 +160,79 @@ class Energy:
             self.next_tick = t + REGEN_S
 
 
+class OrderBoard:
+    def __init__(self, pattern: str) -> None:
+        self.pattern = ORDER_PATTERNS[pattern]
+        self.next_index = 0
+        self.active: list[list[int]] = []  # [generator, remaining], oldest first
+        self.completed = 0
+        while len(self.active) < ACTIVE_ORDERS:
+            self._draw()
+
+    def _draw(self) -> None:
+        g, n = self.pattern[self.next_index % len(self.pattern)]
+        self.next_index += 1
+        self.active.append([g, n])
+
+    def apply_tap(self, g: int) -> bool:
+        for order in self.active:
+            if order[0] == g:
+                order[1] -= 1
+                if order[1] == 0:
+                    self.active.remove(order)
+                    self.completed += 1
+                    self._draw()
+                return True
+        return False  # off-order tap
+
+
+def choose(strategy: str, gens: list[Generator], orders: OrderBoard) -> int | None:
+    if strategy == "balanced":
+        best = max(range(len(gens)), key=lambda i: (gens[i].charges, -i))
+        return best if gens[best].charges > 0 else None
+    if strategy == "focused":
+        return 0 if gens[0].charges > 0 else None
+    if strategy == "order-driven":
+        for g, _ in orders.active:
+            if gens[g].charges > 0:
+                return g
+        return None
+    if strategy == "strict-order":
+        g = orders.active[0][0]
+        return g if gens[g].charges > 0 else None
+    raise ValueError(strategy)
+
+
 @dataclass
 class DayStats:
     sessions: int = 0
     spent: int = 0
+    off_order: int = 0
     regenerated: int = 0
     seconds_at_cap: int = 0
+    orders_completed: int = 0
     session_seconds: list[int] = field(default_factory=list)
     end_reasons: dict[str, int] = field(default_factory=lambda: {"sap": 0, "generator": 0, "time": 0})
-    sap_left_at_generator_stall: int = 0
+    stranded: int = 0
 
 
-def simulate(schedule: list[int], capacities: list[int], recharge_s: int, seconds_per_sap: int, rule: str) -> list[DayStats]:
+@dataclass(frozen=True)
+class Scenario:
+    capacities: tuple[int, ...] = (60, 60)
+    rule: str = "on-first-tap"
+    strategy: str = "order-driven"
+    pattern: str = "even"
+    seconds_per_sap: int = 4
+
+
+def simulate(schedule: list[int], sc: Scenario) -> list[DayStats]:
     energy = Energy()
-    gens = [Generator(c, recharge_s, rule) for c in capacities]
+    gens = [Generator(c, REFILL_S, sc.rule) for c in sc.capacities]
+    orders = OrderBoard(sc.pattern)
     days = [DayStats() for _ in range(DAYS)]
     for d in range(DAYS):
         day = days[d]
-        regen_before = energy.regenerated
-        cap_before = energy.seconds_at_cap
+        regen_before, cap_before, orders_before = energy.regenerated, energy.seconds_at_cap, orders.completed
         for start in sorted(schedule):
             t = d * DAY_S + start
             energy.advance(t)
@@ -153,112 +246,144 @@ def simulate(schedule: list[int], capacities: list[int], recharge_s: int, second
                 if energy.sap <= 0:
                     reason = "sap"
                     break
-                best = max(gens, key=lambda g: g.charges)
-                if best.charges <= 0:
+                pick = choose(sc.strategy, gens, orders)
+                if pick is None:
                     reason = "generator"
-                    day.sap_left_at_generator_stall += energy.sap
+                    day.stranded += energy.sap
                     break
                 energy.spend(t)
-                best.tap(t)
+                gens[pick].tap(t)
+                if not orders.apply_tap(pick):
+                    day.off_order += 1
                 day.spent += 1
-                t += seconds_per_sap
+                t += sc.seconds_per_sap
             day.end_reasons[reason] += 1
             day.session_seconds.append(t - session_start)
         energy.advance((d + 1) * DAY_S)
         day.regenerated = energy.regenerated - regen_before
         day.seconds_at_cap = energy.seconds_at_cap - cap_before
+        day.orders_completed = orders.completed - orders_before
     return days
 
 
-def fmt_reasons(r: dict[str, int]) -> str:
-    return " / ".join(f"{r[k]}" for k in ("sap", "generator", "time"))
+# ---------------------------------------------------------------- reporting
+
+def metrics(days: list[DayStats]) -> dict[str, float]:
+    steady = days[1:]
+    n = len(steady)
+    stalls = sum(s.end_reasons["generator"] for s in days)
+    sessions = sum(s.sessions for s in days)
+    spent_steady = sum(s.spent for s in steady)
+    return {
+        "spent_day": spent_steady / n,
+        "spent_total": sum(s.spent for s in days),
+        "cap_h": sum(s.seconds_at_cap for s in steady) / n / 3600,
+        "session_min": sum(sum(s.session_seconds) for s in steady) / sum(len(s.session_seconds) for s in steady) / 60,
+        "stalls": stalls,
+        "sessions": sessions,
+        "stranded_per_stall": (sum(s.stranded for s in days) / stalls) if stalls else 0.0,
+        "orders_day": sum(s.orders_completed for s in steady) / n,
+        "off_order_pct": 100 * sum(s.off_order for s in steady) / spent_steady if spent_steady else 0.0,
+    }
 
 
-def report_profile(name: str, schedule: list[int], capacities: list[int], recharge_s: int, sps: int, rule: str) -> str:
-    days = simulate(schedule, capacities, recharge_s, sps, rule)
+HEADER = ("| {first} | Sap spent per day (days 2–7) | 7-day total | Generator stalls | Stranded Sap per stall | "
+          "Avg session (min) | Hours at cap per day | Orders per day | Off-order taps |")
+DIVIDER = "|---|---|---|---|---|---|---|---|---|"
+
+
+def row(label: str, m: dict[str, float]) -> str:
+    return (f"| {label} | {m['spent_day']:.0f} | {m['spent_total']:.0f} | {m['stalls']} of {m['sessions']} | "
+            f"{m['stranded_per_stall']:.0f} | {m['session_min']:.1f} | {m['cap_h']:.1f} | "
+            f"{m['orders_day']:.1f} | {m['off_order_pct']:.0f}% |")
+
+
+def detail(name: str, schedule: list[int], sc: Scenario) -> str:
+    days = simulate(schedule, sc)
     lines = [
         f"#### {name}",
         "",
-        "| Day | Sessions | Sap spent | Sap regenerated | Hours at cap | Regen lost at cap | Avg session (min) | Ends: sap / generator / time | Sap stranded by generator stalls |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Day | Sessions | Sap spent | Sap regenerated | Hours at cap | Regen lost at cap | Avg session (min) | "
+        "Ends: sap / generator / time | Stranded Sap | Orders completed |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for i, s in enumerate(days, 1):
         avg = sum(s.session_seconds) / len(s.session_seconds) / 60
-        lines.append(
-            f"| {i} | {s.sessions} | {s.spent} | {s.regenerated} | {s.seconds_at_cap / 3600:.1f} | "
-            f"{s.seconds_at_cap // REGEN_S} | {avg:.1f} | {fmt_reasons(s.end_reasons)} | {s.sap_left_at_generator_stall} |"
-        )
-    steady = days[1:]
-    n = len(steady)
-    lines.append(
-        f"| **Days 2–7 avg** | {sum(s.sessions for s in steady) / n:.0f} | **{sum(s.spent for s in steady) / n:.0f}** | "
-        f"{sum(s.regenerated for s in steady) / n:.0f} | {sum(s.seconds_at_cap for s in steady) / n / 3600:.1f} | "
-        f"{sum(s.seconds_at_cap for s in steady) / n / REGEN_S:.0f} | "
-        f"{sum(sum(s.session_seconds) for s in steady) / sum(len(s.session_seconds) for s in steady) / 60:.1f} | "
-        f"{fmt_reasons({k: sum(s.end_reasons[k] for s in steady) for k in ('sap', 'generator', 'time')})} | "
-        f"{sum(s.sap_left_at_generator_stall for s in steady) / n:.0f} |"
-    )
+        r = s.end_reasons
+        lines.append(f"| {i} | {s.sessions} | {s.spent} | {s.regenerated} | {s.seconds_at_cap / 3600:.1f} | "
+                     f"{s.seconds_at_cap // REGEN_S} | {avg:.1f} | {r['sap']} / {r['generator']} / {r['time']} | "
+                     f"{s.stranded} | {s.orders_completed} |")
     lines.append(f"| **7-day total** | {sum(s.sessions for s in days)} | **{sum(s.spent for s in days)}** | "
-                 f"{sum(s.regenerated for s in days)} | | | | | |")
+                 f"{sum(s.regenerated for s in days)} | | | | | {sum(s.stranded for s in days)} | "
+                 f"{sum(s.orders_completed for s in days)} |")
     return "\n".join(lines) + "\n"
 
 
-def summary_row(name: str, schedule: list[int], capacities: list[int], recharge_s: int, sps: int, rule: str) -> str:
-    days = simulate(schedule, capacities, recharge_s, sps, rule)
-    steady = days[1:]
-    n = len(steady)
-    gen_ends = sum(s.end_reasons["generator"] for s in days)
-    sessions = sum(s.sessions for s in days)
-    return (f"| {name} | {sum(s.spent for s in steady) / n:.0f} | {sum(s.spent for s in days)} | "
-            f"{sum(s.seconds_at_cap for s in steady) / n / 3600:.1f} h | "
-            f"{sum(sum(s.session_seconds) for s in steady) / sum(len(s.session_seconds) for s in steady) / 60:.1f} | "
-            f"{gen_ends} of {sessions} |")
-
-
 def main() -> None:
-    variants = [
-        ("A. v0.2: 2 x 40 charges, refill on empty", [40, 40], "on-empty"),
-        ("B. 2 x 60 charges, refill on empty", [60, 60], "on-empty"),
-        ("C. 2 x 40 charges, refill timer from first tap", [40, 40], "on-first-tap"),
-        ("D. v0.3 proposal: 2 x 60 charges, refill timer from first tap", [60, 60], "on-first-tap"),
-    ]
-    proposal = variants[-1]
+    base = Scenario()
+    core = PROFILES["Core (4 sessions)"]
     out = [
         "# WORLD TREE: 7-Day Energy Simulation",
         "",
         "> **Generated by `tools/balance/energy_sim.py`. Don't edit by hand; re-run the script.**",
-        "> Deterministic: no randomness, whole-second time steps. The model and assumptions are in the script header.",
+        "> Deterministic: no randomness, whole-second time steps. The full model is in the script header.",
         "",
-        f"Constants: cap **{CAP}** Sap, **+1 per {REGEN_S} s** while below the cap, regeneration only (no level-up, gift or chest Sap). "
-        f"Simulation starts at 00:00 on day 1 with a full bar of {CAP} Sap and full generators. One tap every N seconds (N = 4 unless stated). "
-        f"Sessions end at Sap 0, at a generator stall, or after {MAX_SESSION_S // 60} min. Generators: 20 min refill, tap policy \"balanced\" (worst case).",
+        f"**Constants:** cap {CAP} Sap, +1 per {REGEN_S} s while below the cap, regeneration only (no level-up, gift or chest Sap). "
+        f"The simulation starts at 00:00 on day 1 with a full bar and full generators. One tap every 4 s unless stated. "
+        f"Sessions end at Sap 0, at a generator stall, or after {MAX_SESSION_S // 60} min. "
+        f"Generators: {GEN_NAMES[0]} and {GEN_NAMES[1]}, Lv1, {REFILL_S // 60} min refresh timer. "
+        f"{ACTIVE_ORDERS} active orders, refilled from a repeating queue.",
         "",
-        "Theoretical regeneration ceiling: 86,400 s ÷ 120 s = **720 Sap per day**, reachable only if Sap is never at the cap. "
-        "The reference row shows how close a 24/7 schedule gets.",
+        "**Theoretical ceiling:** 86,400 s ÷ 120 s = 720 Sap per day, reachable only if Sap is never at the cap.",
         "",
-        "## Summary: Sap spent per day, by generator rule (4 s per Sap)",
+        "**Strategies:** *balanced* taps the generator with the most charges · *focused* taps only the Seed Pouch · "
+        "*order-driven* taps for the oldest active order and switches to another active order's generator when that one is empty, "
+        "never stockpiling · *strict-order* (sensitivity) only taps for the oldest order and stops when its generator is empty.",
+        "",
+        "**Order demand patterns** (share of taps needed from the Seed Pouch): "
+        + " · ".join(f"*{k}* {pattern_share(k) * 100:.0f}%" for k in ORDER_PATTERNS)
+        + ". *capped-55* follows the GDD §6.2 demand rule.",
         "",
     ]
-    for title, caps, rule in variants:
-        out += [f"### {title}", "",
-                "| Profile | Sap spent per day (days 2–7 avg) | 7-day total spent | Time at cap per day | Avg session (min) | Sessions ended by a generator stall |",
-                "|---|---|---|---|---|---|"]
-        for name, sched in PROFILES.items():
-            out.append(summary_row(name, sched, caps, 20 * 60, 4, rule))
+
+    out += ["## 1. Current values (2 × 60 charges, first-tap refresh), by strategy and profile", ""]
+    for pattern in ORDER_PATTERNS:
+        out += [f"### Order demand: {pattern} ({pattern_share(pattern) * 100:.0f}% Seed Pouch)", "",
+                HEADER.format(first="Profile · strategy"), DIVIDER]
+        for pname, sched in PROFILES.items():
+            for strat in STRATEGIES:
+                m = metrics(simulate(sched, Scenario(strategy=strat, pattern=pattern)))
+                out.append(row(f"{pname.split(' (')[0].split(':')[0]} · {strat}", m))
         out.append("")
-    out += ["## Sensitivity: core player, seconds per Sap", "",
-            "| Variant | Seconds per Sap | Sap spent per day (days 2–7 avg) | 7-day total | Time at cap per day | Avg session (min) | Generator-stall endings |",
-            "|---|---|---|---|---|---|---|"]
-    for title, caps, rule in variants:
+
+    out += ["## 2. Sensitivity: core player, seconds per Sap (even demand)", "",
+            HEADER.format(first="Strategy · s/Sap"), DIVIDER]
+    for strat in STRATEGIES:
         for sps in (3, 4, 5):
-            row = summary_row(title.split(":")[0].split(" 2 x")[0].strip(), PROFILES["Core (4 sessions)"], caps, 20 * 60, sps, rule)
-            cells = row.split(" | ")
-            out.append(" | ".join([cells[0], str(sps)] + cells[1:]))
-    out += ["", f"## Daily detail: {proposal[0]}, 4 s per Sap", ""]
-    for name, sched in PROFILES.items():
-        out.append(report_profile(name, sched, proposal[1], 20 * 60, 4, proposal[2]))
-    out += [f"## Daily detail: {variants[0][0]}, core player", ""]
-    out.append(report_profile("Core (4 sessions)", PROFILES["Core (4 sessions)"], variants[0][1], 20 * 60, 4, variants[0][2]))
+            out.append(row(f"{strat} · {sps}", metrics(simulate(core, Scenario(strategy=strat, seconds_per_sap=sps)))))
+    out.append("")
+
+    out += ["## 3. Generator rules and capacities compared: core player, even demand", "",
+            HEADER.format(first="Variant · strategy"), DIVIDER]
+    variants = [
+        ("A. v0.2: 40 + 40, refill on empty", (40, 40), "on-empty"),
+        ("B. 60 + 60, refill on empty", (60, 60), "on-empty"),
+        ("C. 40 + 40, first-tap refresh", (40, 40), "on-first-tap"),
+        ("D. current: 60 + 60, first-tap refresh", (60, 60), "on-first-tap"),
+        ("E. 105 + 105, first-tap refresh", (105, 105), "on-first-tap"),
+    ]
+    for label, caps, rule in variants:
+        for strat in STRATEGIES:
+            out.append(row(f"{label} · {strat}", metrics(simulate(core, Scenario(capacities=caps, rule=rule, strategy=strat)))))
+    out.append("")
+    out += ["Variant E shows the capacity a *single* generator would need (≥ 100 Sap bar + in-session regen) "
+            "for a fully focused player never to stall.", ""]
+
+    out += ["## 4. Daily detail: core player, current values", ""]
+    for strat, pattern in (("order-driven", "even"), ("order-driven", "a-heavy"), ("focused", "even"), ("balanced", "even")):
+        out.append(detail(f"Core · {strat} · {pattern} demand", core, Scenario(strategy=strat, pattern=pattern)))
+    out.append(detail("Reference 24/7 · balanced · even demand", PROFILES["Reference: every 3h20m, 24/7"],
+                      Scenario(strategy="balanced")))
     print("\n".join(out))
 
 

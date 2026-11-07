@@ -1,6 +1,6 @@
 # WORLD TREE: Technical Architecture
 
-> Status: **Draft v0.3 (design review 2 applied), awaiting approval.**
+> Status: **Draft v0.4 (design review 3 applied), awaiting approval.**
 
 ## 1. Goals
 
@@ -130,7 +130,7 @@ interface   ICatalog      { ItemDef GetItem(ItemId id); ChainDef GetChain(ChainI
 |---|---|---|
 | `BoardModel` | Grid of `Cell { CellState State; ItemInstance Item; }` | `TryPlace`, `Move(from,to) → MoveResult`, `FindNearestEmpty(origin)`, events `ItemPlaced/Moved/Merged/Removed/CellStateChanged` |
 | `MergeRules` (stateless) | Decides Move / Merge / Swap / Reject, and cleansing Withered neighbours | `Resolve(board, from, to, catalog) → MoveResult` |
-| `GeneratorService` | Charges, first-tap refill timers, tapping, spawn placement | `TryActivate(pos) → ActivationResult`, `GetState(pos)` |
+| `GeneratorService` | Charges, first-tap refresh timers, tapping, spawn placement | `TryActivate(pos) → ActivationResult`, `GetState(pos)` |
 | `EnergyModel` | Sap amount, regeneration from timestamps, over-cap rules | `Current`, `TrySpend(n)`, `Add(n)`, `NextTickAt`, `Refresh()` |
 | `Wallet` | Glimmer, Lifebloom, Moonpetals | `TrySpend(currency, n)`, `Add`, event `Changed` |
 | `ProgressionModel` | XP, level, unlock rewards | `AddXp → LevelUpResult` |
@@ -174,7 +174,7 @@ Views are **projections** of model state. A view can always be fully rebuilt fro
 | Asset type | Contents |
 |---|---|
 | `ItemChainDefinition` | Chain ID, display name key, colour accent, ordered list of `ItemLevelEntry { id, nameKey, sprite, sellValue, flags }` |
-| `GeneratorDefinition` | Item ID of the generator, per-level capacity, refill duration, Sap cost, drop tables |
+| `GeneratorDefinition` | Item ID of the generator, per-level capacity, refresh duration, Sap cost, drop tables |
 | `BoardLayoutDefinition` | Width, height, per-cell initial state and item |
 | `OrderPoolDefinition` | Procedural order rules per area (chains, level bands, reward formula) |
 | `AreaDefinition` | Board layout, quest line (tasks, costs, story scenes), unlocks, art references |
@@ -194,12 +194,12 @@ Mobile operating systems can kill the app at any moment, without `OnApplicationQ
 1. **Always consistent.** Every save is a complete snapshot of the whole game state taken *between* commands. A save never contains half a transaction (for example, Sap spent but no item spawned).
 2. **Durable as soon as possible.** Every state-changing command is written right away, with no fixed delay. A kill can lose at most the commands made during the one write that was in progress (typically under 50 ms of play).
 3. **Value is never lost or duplicated.** Real-money purchases are confirmed to the store only after the save that contains them is on disk (§6.4).
-4. **The last good save is never destroyed.** No step of the write protocol leaves the device without a valid save.
+4. **The last good save is never destroyed by a process crash.** No step of the write protocol leaves the device without a valid save if the app is killed or crashes. Sudden power loss is a separate, weaker guarantee (§6.5.1).
 
 ### 6.2 Format
 
 - **Payload:** JSON (Newtonsoft) of `SaveData` DTOs defined in Core: plain classes, lists instead of engine types.
-- **Contents:** board cells, generator states (charges, `refillEndsUtc`), Sap and last regeneration UTC, wallet, XP and level, codex, orders, area and quest progress, story flags, RNG state, settings, daily gift state, and processed purchase transaction IDs (Phase 8).
+- **Contents:** board cells, generator states (charges, `refreshEndsUtc`), Sap and last regeneration UTC, wallet, XP and level, codex, orders, area and quest progress, story flags, RNG state, settings, daily gift state, and processed purchase transaction IDs (Phase 8).
 - **Envelope:** `{ schemaVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` is the `StateVersion` the snapshot was taken at (§6.3). It is strictly increasing across writes, across app sessions and across crashes, but not necessarily consecutive (coalesced versions are skipped). The loader uses it to tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
 - All time-based state uses **absolute UTC timestamps**, so a rollback to an older save never distorts timers.
 
@@ -211,17 +211,17 @@ Mobile operating systems can kill the app at any moment, without `OnApplicationQ
 |---|---|---|
 | G1 | **One writer.** At most one write touches the save files at any time | Every write (background, lifecycle flush, critical, retry, post-load normalization) goes through one `SaveWriteQueue` with one worker. Nothing else calls `AtomicSaveStore.Write` |
 | G2 | **Monotonic sequence.** Every snapshot carries a sequence strictly greater than any snapshot taken before it, across app restarts | `StateVersion` (a 64-bit integer) increments on the main thread for every successful command and is stamped onto the snapshot. On load it resumes from `max(sequence of every readable file, including bak, tmp and quarantined files) + 1` |
-| G3 | **No stale overwrite.** An older snapshot can never replace a newer one on disk | The queue keeps `lastDurableSequence`. Before step 1 of the protocol it **drops** any snapshot whose sequence is ≤ that value. Combined with G1, write order on disk is strictly increasing |
+| G3 | **No stale overwrite.** An older snapshot can never replace a newer one on disk | The queue keeps `lastCommittedSequence`. Before step 1 of the protocol it **drops** any snapshot whose sequence is ≤ that value. Combined with G1, write order on disk is strictly increasing |
 | G4 | **Coalescing never loses the latest snapshot** | The queue holds an in-flight write plus **one pending slot** (latest wins). A new snapshot replaces the pending one only if its sequence is higher. A write in progress is never cancelled midway. When it finishes, the pending snapshot (always the newest taken) is written next |
-| G5 | **Crash-safe at every replacement stage** | Atomic protocol (§6.5) plus newest-valid recovery (§6.6). Tested by crashing after every individual file operation (§6.7) |
-| G6 | **No purchase confirmation before durability** | A snapshot is *durable* only after step 3 of §6.5 (rename to `save.json`) succeeds. `WhenDurable(sequence)` completes only once `lastDurableSequence ≥ sequence`. IAP confirmation waits on it (§6.4) |
+| G5 | **Process-crash-safe at every replacement stage** (power loss: best effort, §6.5.1) | Atomic protocol (§6.5) plus newest-valid recovery (§6.6). Tested by crashing after every individual file operation (§6.7) |
+| G6 | **No purchase confirmation before the save is committed** | A snapshot is *committed* only after step 3 of §6.5 (rename to `save.json`) has returned successfully, with the file contents flushed before it. `WhenCommitted(sequence)` completes only once `lastCommittedSequence ≥ sequence`. IAP confirmation waits on it (§6.4). "Committed" means safe against **process termination**. It is not a claim of power-loss durability (§6.5.1) |
 
 **Flow:**
 
 - Each successful `GameSession` command (drag, tap, deliver, sell, claim…) increments `StateVersion`. At the end of the frame, if `StateVersion > lastSnapshotSequence`, the main thread takes a **snapshot** (an immutable DTO copy, target < 1 ms) and posts it to the queue. Several commands in one frame share one snapshot.
 - The queue worker serializes, hashes and writes on a **background thread**. It touches only the immutable snapshot, never live models.
-- **Lifecycle flush** (`OnApplicationPause(true)`, `OnApplicationFocus(false)` on Android, `OnApplicationQuit`): take a snapshot of the latest state, post it, and **block until `WhenDurable(thatSequence)`** completes, or 3 s pass. The flush never writes on its own; it only waits on the same queue, so G1 holds. iOS and Android give apps several seconds when backgrounding, far more than a save takes.
-- **Write failure** (for example, disk full): the previous save stays untouched and `lastDurableSequence` doesn't move. The failed snapshot goes back into the pending slot (unless a newer one is already there), and the queue retries with backoff (1 s, 2 s, 4 s … max 30 s). A non-blocking warning appears after 3 failures.
+- **Lifecycle flush** (`OnApplicationPause(true)`, `OnApplicationFocus(false)` on Android, `OnApplicationQuit`): take a snapshot of the latest state, post it, and **block until `WhenCommitted(thatSequence)`** completes, or 3 s pass. The flush never writes on its own; it only waits on the same queue, so G1 holds. iOS and Android give apps several seconds when backgrounding, far more than a save takes.
+- **Write failure** (for example, disk full): the previous save stays untouched and `lastCommittedSequence` doesn't move. The failed snapshot goes back into the pending slot (unless a newer one is already there), and the queue retries with backoff (1 s, 2 s, 4 s … max 30 s). A non-blocking warning appears after 3 failures.
 - Implementation: a lock-protected pending slot plus one worker loop on `Task.Run` (works under IL2CPP on iOS and Android). No parallel per-write tasks. In tests the worker is replaced by a manual, step-by-step executor (`IBackgroundWorker`), so every interleaving is deterministic.
 
 ### 6.4 Critical transactions
@@ -230,18 +230,34 @@ Rewards are always committed through the normal path above. These commands are a
 
 | Transaction | Extra guarantee |
 |---|---|
-| IAP grant (Phase 8) | The grant and its transaction ID are applied as one command. The store purchase is confirmed (`ConfirmPendingPurchase`) only after `WhenDurable(sequence of that command)` completes (G6). Until then the purchase stays *pending* at the store. If the app dies, the store re-delivers it on next launch: if the saved state already contains the transaction ID, it's confirmed without a second grant; otherwise it's granted then. If the write keeps failing, the purchase is never confirmed, and the store eventually re-delivers or refunds it according to its own rules |
+| IAP grant (Phase 8) | The grant and its transaction ID are applied as one command. The store purchase is confirmed (`ConfirmPendingPurchase`) only after `WhenCommitted(sequence of that command)` completes (G6). Until then the purchase stays *pending* at the store. If the app dies, the store re-delivers it on next launch: if the saved state already contains the transaction ID, it's confirmed without a second grant; otherwise it's granted then. If the write keeps failing, the purchase is never confirmed, and the store eventually re-delivers or refunds it according to its own rules |
 | Rewarded-ad grant, Moonpetal spend | The UI shows the reward immediately, but the scheduler moves the write ahead of any lifecycle wait. A failed write raises the warning at once instead of after 3 retries |
 | Order delivery, restoration task, level-up, daily gift | Same as above |
 
 ### 6.5 Atomic write protocol
 
-0. Check G3: drop the snapshot if its sequence ≤ `lastDurableSequence`. Delete any leftover `save.tmp` (it can only be from an interrupted earlier write, which the loader already considered at startup).
+0. Check G3: drop the snapshot if its sequence ≤ `lastCommittedSequence`. Delete any leftover `save.tmp` (it can only be from an interrupted earlier write, which the loader already considered at startup).
 1. Serialize the envelope, write it to `save.tmp`, `FileStream.Flush(flushToDisk: true)`, close.
 2. If `save.json` exists: delete `save.bak`, then rename `save.json` → `save.bak`.
-3. Rename `save.tmp` → `save.json`. The snapshot is now **durable**: set `lastDurableSequence` and complete any `WhenDurable` waiters.
+3. Rename `save.tmp` → `save.json`. The snapshot is now **committed**: set `lastCommittedSequence` and complete any `WhenCommitted` waiters.
 
-Because file contents are flushed before any rename, a power loss that undoes a rename (directory metadata not yet persisted) still leaves a complete, checksummed copy of either the old or the new save under one of the three names.
+#### 6.5.1 Durability scope: process crash vs power loss (design review 3)
+
+| Failure | Guarantee | Basis |
+|---|---|---|
+| **Process termination**: app killed by the OS or user, crash, exception, `OnApplicationQuit` never called | **Guaranteed:** the next launch loads exactly the last committed save, or the one being written if it had reached a recoverable stage. Never corrupted, never empty | The kernel keeps completed writes and renames in its cache even when the process dies. The protocol and loader cover every intermediate state. Proven by the exhaustive crash test (§6.7) |
+| **Sudden power loss or OS/kernel crash** (battery pull, hard reset, kernel panic) | **Best effort, not guaranteed.** The expected outcome is the old or the new save, but a rollback to an older save (for example `save.bak`) is possible. Losing all three copies is very unlikely but **not ruled out** | See below |
+
+Why power loss isn't covered:
+- `FileStream.Flush(flushToDisk: true)` asks the OS to persist the **file's data** (`fsync` on Android/Linux; on Apple platforms `fsync` may only reach the drive's cache, and true persistence needs `F_FULLFSYNC`).
+- The **renames** in steps 2 and 3 are directory metadata changes. Making them durable needs an `fsync` on the **directory**, which .NET doesn't expose. Whether a rename survives power loss, and in which order relative to data, depends on the file system (ext4 and F2FS on Android, APFS on iOS), its mount options and the device's storage controller.
+- So no universal power-loss claim is made in code comments, store listings or support material.
+
+Mitigations and verification:
+- Flushing data before renaming, keeping `save.bak`, and newest-valid recovery make the common outcome "old or new save" on journaling file systems. The worst likely case is losing the last few seconds or minutes of play.
+- **Phase 7:** an optional `IDirectorySync` platform hook (no-op by default) that, where verified, calls `fsync` on the save directory (Android, through libc) and uses `F_FULLFSYNC` (iOS), via `DllImport` under IL2CPP. It's adopted only if it measurably helps in device testing and costs < 10 ms per save.
+- **Phase 7 ⚠ device verification:** a power-loss test on at least one Android and one iOS device (hard power-off during rapid saving, for example with a scripted loop and battery disconnect on a test device, or a forced hard reset). The result is recorded as "verified on these devices" only, never as a general guarantee.
+- **Purchases:** because committed ≠ power-loss durable, a purchase confirmed just before a power loss could theoretically be rolled back. Backstops: re-delivery of unconfirmed purchases, restore for non-consumables, saved transaction IDs, and (Phase 8, if a backend exists) server-side receipt validation, which allows a lost consumable grant to be restored by support.
 
 `File.Replace` is deliberately **not** used: its behaviour on IL2CPP and Android file systems isn't guaranteed. The loader below makes every intermediate state recoverable.
 
@@ -256,7 +272,7 @@ Because file contents are flushed before any rename, a power loss that undoes a 
 ### 6.6 Load and recovery
 
 1. Read `save.json`, `save.tmp` and `save.bak` if present. For each: parse the envelope, verify `sha256`, check that `schemaVersion` is known or can be migrated.
-2. Choose the valid file with the **highest `sequence`**. Set `StateVersion` to `max(readable sequences) + 1` and `lastDurableSequence` to the chosen sequence (G2). If the chosen file isn't `save.json`, post it to the write queue so the file layout is normalized through the same protocol (G1).
+2. Choose the valid file with the **highest `sequence`**. Set `StateVersion` to `max(readable sequences) + 1` and `lastCommittedSequence` to the chosen sequence (G2). If the chosen file isn't `save.json`, post it to the write queue so the file layout is normalized through the same protocol (G1).
 3. Invalid files are renamed `save.corrupt-<utc>.json` (the newest 3 are kept) for support, never silently deleted.
 4. No files → new game. Files existed but none was valid → new game, plus a one-time notice that the save couldn't be restored (the quarantined copies allow manual recovery).
 
@@ -266,14 +282,15 @@ Because file contents are flushed before any rename, a power loss that undoes a 
 
 | Test | Expectation |
 |---|---|
-| **Exhaustive crash test (G5):** run two consecutive writes (A then B) and, for every *k*, crash after the *k*-th file operation (each create, partial write, flush, delete and rename), including half-written `tmp` content | The next load returns exactly A or exactly B, never a corrupted or empty state, and never A when B was already durable |
+| **Exhaustive process-crash test (G5):** run two consecutive writes (A then B) and, for every *k*, crash after the *k*-th file operation (each create, partial write, flush, delete and rename), including half-written `tmp` content | The next load returns exactly A or exactly B, never a corrupted or empty state, and never A when B was already committed. (This simulates process termination, where completed operations persist. It does not simulate power loss: §6.5.1) |
 | Crash, recover, write again (for every *k* above) | The next write after recovery succeeds, and its sequence is greater than every sequence on disk |
 | **Stale snapshot (G3):** post a snapshot with sequence 5 after 7 is durable | Dropped. Disk still holds 7 |
 | **Coalescing (G4):** while write 1 is in flight, post snapshots 2, 3, 4 | Exactly one more write happens, and it contains 4. Snapshot 3 posted after 4 is ignored |
 | **One writer (G1):** lifecycle flush while a background write is in flight | The flush waits. The `FaultInjectingFileSystem` records no overlapping operations, and written sequences are strictly increasing |
-| **Durability (G6):** `WhenDurable(n)` with a crash injected before step 3 | Never completes. It completes only after the rename to `save.json` succeeds |
+| **Commit point (G6):** `WhenCommitted(n)` with a crash injected before step 3 | Never completes. It completes only after the rename to `save.json` succeeds |
 | Failed write followed by a newer snapshot | The newer snapshot is written. The failed older one is not written afterwards |
 | **Threaded stress test:** 10,000 commands from the main thread at random intervals (seeded) with a real background worker | Written sequences are strictly increasing, and the final file equals the last snapshot |
+| **Slow-background-save stress test (Phase 1 acceptance):** a `SlowFileSystem` wrapper adds a seeded random delay (0–200 ms) to every file operation, with occasional 1 s stalls. The main thread posts 2,000 snapshots at random intervals (0–20 ms), plus 20 lifecycle flushes at random points, with a real background worker | (1) **No overtaking:** the sequence of each committed write is strictly greater than the previous one. (2) **No stale replacement:** no write starts with a sequence ≤ `lastCommittedSequence`, and the file never goes from a higher to a lower sequence. (3) **Latest eventually persisted:** after posting stops and the queue drains, `save.json` holds the last posted snapshot exactly. (4) Every flush returns with `lastCommittedSequence` ≥ the sequence it posted, or times out after 3 s and reports it. (5) At most one file operation is in progress at any time |
 | `save.json` truncated, zero bytes, garbage, or wrong checksum | Falls back to the newest valid file and quarantines the bad one |
 | All three files invalid | New game, notice flag set, files quarantined |
 | Only `save.tmp` present | Loads it and normalizes the file layout |
