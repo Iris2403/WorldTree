@@ -1,10 +1,10 @@
 # WORLD TREE: Development Roadmap
 
-> Status: **Draft v0.4 (design review 3 applied), awaiting approval.** One phase at a time. Each phase ends with a working, testable result and explicit user approval before the next phase starts.
+> Status: **Planning frozen (design review 4).** The GDD and architecture are the implementation baseline. No further design-review cycles. A decision is reopened only when implementation exposes a concrete contradiction or blocker, and the change is recorded here as a new decision.
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Editor validation
 
-## Phase 0: Concept and planning 🔄
+## Phase 0: Concept and planning ✅
 
 - [x] Claude Code project skill `worldtree-game-developer`
 - [x] Game Design Document
@@ -15,7 +15,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [x] Design review 1: generator merging, Withered/Sealed rules, energy budget, save reliability, Unity 6 dependencies, mobile layout (decisions below)
 - [x] Design review 2: deterministic 7-day energy simulation, generator refresh rule and starting capacity, save concurrency guarantees, cooldown-skip measurement plan (decisions below)
 - [x] Design review 3: tap strategies in the simulator, qualified capacity guarantee and order demand rule, durability scope, slow-save stress test, refresh-cycle UI terminology (decisions below)
-- [ ] **User approval of the above**
+- [x] Design review 4: simplification pass, planning frozen (decisions below)
+- [x] **User approval** (design review 4)
 
 ### Design review 1: decisions
 
@@ -49,17 +50,30 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D16 | Slow-save stress test | Added to Phase 1 acceptance: no overtaking, no stale replacement, latest snapshot eventually persisted, single writer, bounded flush | Architecture §6.7, prototype spec §5 |
 | D17 | Generator UI terminology | A "refresh cycle": the first tap starts a fixed timer, after which the generator is full whatever is left. States Ready / Refreshing / Waiting for refresh. Wording "refresh", never "recharge" or "empty" | GDD §4.1 |
 
+### Design review 4: simplification and freeze
+
+| # | Topic | Decision | Rationale |
+|---|---|---|---|
+| D18 | Save system | **Supersedes D4, D11, D15, D16.** Synchronous saves on the main thread, at most one write per frame. Disk flush only when going to the background. Kept: atomic tmp → bak → json protocol, SHA-256, sequence numbers, newest-valid recovery, crash-recovery tests. Removed: background worker, write queue, coalescing slot, stale-snapshot machinery, `WhenCommitted`, threaded and slow-save stress tests, critical-transactions table | The only guarantee made is process-crash safety, which doesn't need a disk flush, so the background thread (added to hide flush cost) and all its concurrency machinery weren't needed. A single thread writing in order can't overtake itself. Revisit only if device profiling (Phase 7) shows saves over 2 ms |
+| D19 | Phase 1 scope | Playable graybox and core loop only: board, generators, drag, merge, Sap, basic HUD, debug statistics, simple portrait fit, save and recovery tests | Phase 1 exists to validate feel and measure seconds per Sap. Multi-device layout, UI polish and full generator-state presentation move to later phases |
+| D20 | Planning freeze | Current GDD and architecture are the baseline. No new review cycles | The remaining questions are empirical and can only be answered by the prototype |
+| D21 | Assemblies | Five: Core, Data, Game (merges Presentation, Platform and App), Editor, Tests | After the save code moved into Core, Platform held only a clock and a path. Engine-free Core and the .NET test path are unchanged |
+| D22 | Phase 4 simulation | Port the Python scenarios to C# tests and compare outputs before retiring the Python script, which stays as the reference until then. Merge-cooldown exploit measured by one number: extra taps enabled by skipped refresh waits | Avoids binding production code to a throwaway tool, and measures the one number that can matter |
+| D23 | Order demand | Configurable max 55% per chain and max 2 consecutive orders per chain while there are two generators. No capacity-based formula yet | Simplest rule that the simulation showed removes forced stalls. Generalize when a third generator exists |
+| D24 | Extras removed | Optional native directory-sync hook removed. One quarantined corrupt save instead of three | No demonstrated need. Re-add only if device testing shows one |
+| D25 | Mobile layout | `docs/06-mobile-layout.md` stays the target for Phase 6. Phase 1 only fits the board into the portrait safe area | Part of D19 |
+
 ## Phase 1: Project architecture and playable prototype ⬜
 
-**Deliverables:** Unity project skeleton (manifest, asmdefs, folders), Core models for board, merge, generators (including Lv1 → Lv2 merging) and energy, `GameSession`, the full atomic save stack with interruption tests, the layout solver, a graybox portrait board scene built by an Editor menu, drag input, a debug stats overlay, and Core tests plus .NET CI. Full scope in `05-prototype-spec.md`.
+**Deliverables:** Unity project skeleton (manifest, five asmdefs, folders), Core models for board, merge, generators (first-tap refresh, Lv1 → Lv2 merging) and energy, `GameSession`, the synchronous atomic save stack with crash-recovery tests, ScriptableObject content definitions, an Editor menu that creates the content assets and the prototype scene, a graybox portrait board with drag input, a basic HUD, a debug statistics overlay, and Core tests plus .NET CI. Full scope in `05-prototype-spec.md`.
 
-**Acceptance:** the Core test suite passes in CI, including the exhaustive process-crash test and the **slow-background-save stress test** (newer snapshots never overtaken, stale writes never replace newer saves, latest pending snapshot eventually persisted). In Unity the player can generate, drag, merge, and see Sap drain and regenerate. State survives an app restart, including one right after a merge.
+**Acceptance:** `dotnet test tools/CoreTests` passes locally and in CI, including the crash-recovery tests. In Unity the player can generate, drag, merge, and see Sap drain and regenerate. State survives an app restart, including one right after a merge.
 
-**⚠ Editor validation:** packages resolve and the resolved `manifest.json` / `packages-lock.json` are committed, TMP Essential Resources are imported, Active Input Handling is set to the Input System, everything compiles, the `WorldTree/Setup/Build Prototype Scene` menu builds a working scene, drag feels responsive with mouse and touch (Device Simulator), the layout checklist (`06-mobile-layout.md` §7) passes, and the EditMode tests pass in Test Runner.
+**⚠ Editor validation:** packages resolve and the resolved `manifest.json` / `packages-lock.json` are committed, TMP Essential Resources are imported, Active Input Handling is set to the Input System, everything compiles, *WorldTree → Setup → Build Prototype Scene* builds a working scene, drag feels responsive with mouse and touch (Device Simulator), the board fits on a portrait phone screen, and the tests pass in Test Runner.
 
 ## Phase 2: Merge board and item progression ⬜
 
-**Deliverables:** Withered and Sealed cells with cleansing, full chain data (Nature, Water, Craft), the Satchel, Sell + Undo, the Grove Codex with first-discovery rewards, merge highlight on drag, item info panel, `ObjectPool` item views, tweener v1, data validator menu.
+**Deliverables:** Withered and Sealed cells with cleansing, generator UI states from GDD §4.1 (Ready / Refreshing / Waiting for refresh), full chain data (Nature, Water, Craft), the Satchel, Sell + Undo, the Grove Codex with first-discovery rewards, merge highlight on drag, item info panel, `ObjectPool` item views, tweener v1, data validator menu.
 
 **Acceptance:** tests cover every row of GDD §3.2 and cleansing propagation. The data validator passes on all assets.
 
@@ -75,11 +89,9 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 
 ## Phase 4: Orders and rewards ⬜
 
-**Deliverables:** OrderBoard and OrderGenerator with the feasibility guarantee, delivery by tap and by drag, rewards (Glimmer, XP, Lifebloom, chests), player levels and unlocks, reward fly-to-HUD, and a **balance simulator** (Core-based C#, replacing `tools/balance/energy_sim.py`) with an editor window.
+**Deliverables:** OrderBoard and OrderGenerator with the feasibility guarantee and the demand rule (GDD §6.2: configurable 55% per chain, max 2 consecutive), delivery by tap and by drag, rewards (Glimmer, XP, Lifebloom, chests), player levels and unlocks, reward fly-to-HUD, and balance simulation as **C# tests on Core**: the scenarios of `tools/balance/energy_sim.py` ported and their outputs compared with the Python reference. The Python script is retired only after the comparison passes.
 
-**The simulator must report, per player profile and per day:** Sap regenerated and spent, time at the cap, session length and end reasons, generator stalls and stranded Sap, orders per day and off-order taps, **for each player strategy** (balanced, focused, order-driven, strict-order) and for the real order generator (the same metrics as the Python tool, which it must reproduce exactly for the same inputs), area progress versus the GDD §5.1 budgets, and **for generator merging (GDD §4.3):** upgrades obtained by source, refresh time skipped through merges, extra taps enabled by skipped waits, the Sap → L1-equivalent conversion rate, and the share of taps made on a freshly merged generator.
-
-**Acceptance:** order feasibility property tests (thousands of seeded runs). The simulator reproduces the Python tool's numbers, reports days per area within the GDD §5.1 targets, shows taps enabled by merge-skipped waits ≤ 5% of a core player's daily taps (otherwise apply the GDD §4.3 remedy), and shows **0 generator stalls for order-driven players** with the real order generator (GDD §4.4, §6.2).
+**Acceptance:** order feasibility property tests (thousands of seeded runs). The C# scenarios match the Python reference output. Days per area fall within the GDD §5.1 targets. Order-driven players have 0 generator stalls with the real order generator. Extra taps enabled by skipped refresh waits are ≤ 5% of a core player's daily taps (otherwise apply the GDD §4.3 remedy).
 
 **⚠ Editor validation:** order panel UX, reward flow feel.
 
@@ -93,7 +105,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 
 ## Phase 6: Visual polish, animation and sound ⬜
 
-**Deliverables:** final UI skin, item and generator art pipeline (replacing all placeholders), VFX library, blight-dissolve shader, audio integration (music per area, SFX pitch per level), haptics (iOS and Android), accessibility settings, reduced motion.
+**Deliverables:** multi-device layout per `06-mobile-layout.md` (tiers, `BoardLayoutSolver` with reference-device tests, scene banner, context bar), final UI skin, item and generator art pipeline (replacing all placeholders), VFX library, blight-dissolve shader, audio integration (music per area, SFX pitch per level), haptics (iOS and Android), accessibility settings, reduced motion.
 
 **Acceptance:** zero placeholder assets remaining (tracked list), and audio and haptic toggles persist.
 
@@ -101,9 +113,9 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 
 ## Phase 7: Saving, optimization and mobile builds ⬜
 
-**Deliverables:** save hardening on devices (atomic writes, recovery and interruption tests already land in Phase 1; this phase adds migration fixtures from real saves, IL2CPP background-write verification, the device kill test, ⚠ a power-loss test on at least one Android and one iOS device, and an optional `IDirectorySync` hook if it measurably helps; Architecture §6.5.1), Addressables for area art, local notifications, Localization package, profiling pass against the budgets, Android and iOS build configs, GameCI pipeline (optional, needs a license secret).
+**Deliverables:** save migrations with fixture tests from real saves, device profiling of save writes against the 2 ms budget, ⚠ a device kill test and a power-off test on at least one Android and one iOS device (results recorded as observed only, no general guarantee), Addressables for area art, local notifications, Localization package, profiling pass against the budgets, Android and iOS build configs, GameCI pipeline (optional, needs a license secret).
 
-**Acceptance:** migration fixture tests, device kill test (Architecture §6.7), budgets met on a reference device.
+**Acceptance:** migration fixture tests, device kill test, budgets met on a reference device.
 
 **⚠ Editor validation:** builds, device profiling, notifications.
 

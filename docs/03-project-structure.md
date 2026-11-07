@@ -12,18 +12,13 @@ WorldTree/
 │   └── WorldTree/                              # Everything project-owned lives here
 │       ├── Scripts/
 │       │   ├── Core/            WorldTree.Core.asmdef   (pure C#)
-│       │   │   ├── Board/  Items/  Generators/  Energy/  Orders/
-│       │   │   ├── Progression/  Economy/  Story/  Save/  Layout/  Common/
+│       │   │   ├── Board/  Items/  Generators/  Energy/  Save/  Common/  Content/
+│       │   │   ├── (later: Orders/  Progression/  Economy/  Story/)
 │       │   │   └── GameSession.cs
 │       │   ├── Data/            WorldTree.Data.asmdef   (ScriptableObjects)
-│       │   ├── Platform/        WorldTree.Platform.asmdef
-│       │   ├── Presentation/    WorldTree.Presentation.asmdef
-│       │   │   ├── Board/  Input/  UI/  Feedback/  Tweening/  Pooling/
-│       │   ├── App/             WorldTree.App.asmdef
+│       │   ├── Game/            WorldTree.Game.asmdef   (bootstrapper, views, input, HUD, save driver)
 │       │   └── Editor/          WorldTree.Editor.asmdef (Editor-only)
-│       ├── Tests/
-│       │   ├── EditMode/        WorldTree.Tests.EditMode.asmdef
-│       │   └── PlayMode/        WorldTree.Tests.PlayMode.asmdef
+│       ├── Tests/               WorldTree.Tests.asmdef  (engine-free Core tests)
 │       ├── Data/                # ScriptableObject *assets* (.asset)
 │       │   ├── Chains/  Generators/  Boards/  Orders/  Areas/  Dialogue/  Config/
 │       │   └── GameDatabase.asset

@@ -1,6 +1,6 @@
 # WORLD TREE: Technical Architecture
 
-> Status: **Draft v0.4 (design review 3 applied), awaiting approval.**
+> Status: **v1.0 implementation baseline (frozen after design review 4).** Reopen a decision only if implementation exposes a concrete contradiction or blocker (see `04-roadmap.md`).
 
 ## 1. Goals
 
@@ -76,18 +76,15 @@ Not used on purpose: third-party DI containers, tween libraries (an in-house twe
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ App          Bootstrapper (composition root), scene flow   │
-├──────────────────────────────┬─────────────────────────────┤
-│ Presentation                 │ Platform                    │
-│ Board/Item views, drag input,│ File save store, haptics,   │
-│ HUD/UI, tweens, VFX, audio,  │ notifications, ads, IAP,    │
-│ pooling                      │ device/time services        │
-├──────────────────────────────┴─────────────────────────────┤
+│ Game         Bootstrapper (composition root), board/item   │
+│              views, drag input, HUD, tweens, save driver,  │
+│              system clock (later: haptics, ads, IAP)       │
+├────────────────────────────────────────────────────────────┤
 │ Data         ScriptableObject definitions → Core defs      │
 ├────────────────────────────────────────────────────────────┤
 │ Core (pure C#, noEngineReferences)                         │
 │ Board · Merge · Items · Generators · Energy · Orders ·     │
-│ Progression · Economy · Story · Save DTOs · GameSession    │
+│ Progression · Economy · Story · Save · GameSession         │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,16 +92,13 @@ Not used on purpose: third-party DI containers, tween libraries (an in-house twe
 
 | Assembly | References | Engine | Notes |
 |---|---|---|---|
-| `WorldTree.Core` | Precompiled `Newtonsoft.Json.dll` only (`overrideReferences: true`) | **No** (`noEngineReferences: true`) | All rules and state, the save store and the layout solver. Also compiled by `tools/CoreTests` with .NET (Newtonsoft through NuGet) |
-| `WorldTree.Data` | Core | Yes | ScriptableObjects, validation (`OnValidate`), `GameDatabase` → `CoreCatalog` |
-| `WorldTree.Platform` | Core | Yes | `SystemClock`, save directory path, `IHaptics`, `IAdService` implementations |
-| `WorldTree.Presentation` | Core, Data, `Unity.InputSystem`, `Unity.TextMeshPro`, `Unity.RenderPipelines.Universal.Runtime` (only if code touches `Light2D`) | Yes | MonoBehaviours, views, UI |
-| `WorldTree.App` | All of the above | Yes | `Bootstrapper`, scene loading |
-| `WorldTree.Editor` | Data, Core | Editor only | Data validators, scene/prefab builder menus, balance simulator window |
-| `WorldTree.Tests.EditMode` | Core, Data, Platform, `UnityEngine.TestRunner`, `UnityEditor.TestRunner`, precompiled `nunit.framework.dll` | Editor only, `defineConstraints: UNITY_INCLUDE_TESTS` | NUnit |
-| `WorldTree.Tests.PlayMode` | All, `UnityEngine.TestRunner`, precompiled `nunit.framework.dll` | Test, `defineConstraints: UNITY_INCLUDE_TESTS` | Input, scene smoke tests |
+| `WorldTree.Core` | Precompiled `Newtonsoft.Json.dll` only (`overrideReferences: true`) | **No** (`noEngineReferences: true`) | All rules and state, and the save store. Also compiled by `tools/CoreTests` with .NET (Newtonsoft through NuGet) |
+| `WorldTree.Data` | Core | Yes | ScriptableObjects, `GameDatabase` → Core catalog |
+| `WorldTree.Game` | Core, Data, `Unity.InputSystem`, `Unity.TextMeshPro` | Yes | Bootstrapper, MonoBehaviours, views, input, HUD, save driver, `SystemClock`. Platform services (haptics, notifications, ads, IAP) are added here when their phase starts, and split into their own assembly only if they grow large |
+| `WorldTree.Editor` | Core, Data, Game | Editor only | Setup menus (content assets, prototype scene), data validators |
+| `WorldTree.Tests` | Core, `UnityEngine.TestRunner`, `UnityEditor.TestRunner`, precompiled `nunit.framework.dll` | Editor only, `defineConstraints: UNITY_INCLUDE_TESTS` | Engine-free NUnit tests of Core. The same files are compiled by `tools/CoreTests`, so they run with and without Unity |
 
-Assembly boundaries enforce the dependency rule at compile time. Core physically *can't* reference `UnityEngine`.
+Five assemblies (design review 4 merged `Platform`, `App` and `Presentation` into `Game`, and dropped the separate PlayMode test assembly until there are PlayMode tests). The boundaries enforce the dependency rule at compile time. Core physically *can't* reference `UnityEngine`.
 
 ## 4. Core domain model
 
@@ -144,11 +138,11 @@ Every model operation is **transactional**: it validates first and then mutates,
 ### 4.2 Cross-cutting interfaces
 
 ```csharp
-interface IClock  { DateTime UtcNow { get; } }        // SystemClock (Platform), FakeClock (tests)
+interface IClock  { DateTime UtcNow { get; } }        // SystemClock (Game), FakeClock (tests)
 interface IRandom { int Next(int maxExclusive); }     // seeded XorShift in Core; state saved for determinism
-interface IFileSystem { /* read, write+flush, rename, delete, exists: the only file access the save store uses */ }
-                                                      // PhysicalFileSystem (System.IO, Core), FaultInjectingFileSystem (tests)
-interface ISaveStore { LoadResult Load(); void Write(SaveEnvelope e); } // AtomicSaveStore (Core), see §6
+interface IFileSystem { /* exists, read, write (optional disk flush), move, delete: the only file access the save store uses */ }
+                                                      // PhysicalFileSystem (System.IO, Core), in-memory + fault-injecting (tests)
+// AtomicSaveStore (Core) writes and loads saves, see §6
 interface IHaptics { void Play(HapticKind kind); }    // Light / Medium / Success / Warning
 interface IAdService { bool IsRewardedReady { get; } void ShowRewarded(Action<bool> done); } // NoOp until Phase 8
 ```
@@ -163,8 +157,8 @@ Pointer input ──► DragController ──► GameSession.DragItem(from,to)
                                            │
                ┌───────────────────────────┼───────────────────────────┐
                ▼                           ▼                           ▼
-        BoardView animates          FeedbackService:            SaveScheduler
-        (pooled ItemViews)          VFX + SFX + haptic          commits (§6.3)
+        BoardView animates          FeedbackService:            SaveDriver writes
+        (pooled ItemViews)          VFX + SFX + haptic          at end of frame (§6.3)
 ```
 
 Views are **projections** of model state. A view can always be fully rebuilt from the model (`BoardView.RebuildAll()`), which makes load, undo and debugging trivial.
@@ -185,83 +179,44 @@ Views are **projections** of model state. A view can always be fully rebuilt fro
 - **Validation:** `OnValidate` plus a `WorldTree/Validate Data` editor menu checks for duplicate IDs, broken `Next` links, unreachable chains, empty drop tables and orders that can't be fulfilled. CI can call the same validator in batch mode later.
 - IDs are typed explicitly in the inspector, never derived from asset names.
 
-## 6. Save system (revised in design reviews 1 and 2)
+## 6. Save system (simplified in design review 4)
 
-Mobile operating systems can kill the app at any moment, without `OnApplicationQuit`: low memory, a swipe from the app switcher, a crash, a battery pull. The v0.1 plan (a 2-second debounce) could lose up to 2 seconds of play, including rewards. It is replaced by the design below.
+Mobile operating systems can kill the app at any moment, without `OnApplicationQuit`. The save system is built so that a **process crash or kill never corrupts or loses the save**, while staying simple: one thread, synchronous writes, no queue.
 
 ### 6.1 Principles
 
-1. **Always consistent.** Every save is a complete snapshot of the whole game state taken *between* commands. A save never contains half a transaction (for example, Sap spent but no item spawned).
-2. **Durable as soon as possible.** Every state-changing command is written right away, with no fixed delay. A kill can lose at most the commands made during the one write that was in progress (typically under 50 ms of play).
-3. **Value is never lost or duplicated.** Real-money purchases are confirmed to the store only after the save that contains them is on disk (§6.4).
-4. **The last good save is never destroyed by a process crash.** No step of the write protocol leaves the device without a valid save if the app is killed or crashes. Sudden power loss is a separate, weaker guarantee (§6.5.1).
+1. **Always consistent.** Every save is a complete snapshot of the game state taken *between* commands. It never contains half a transaction.
+2. **Written promptly.** Any frame in which state changed ends with one synchronous save. A kill can lose at most the commands from the frame in progress.
+3. **The last good save survives a process crash.** No step of the write protocol leaves the device without a valid save if the app is killed or crashes.
+4. **No power-loss claim.** Sudden power loss or an OS crash is best effort (§6.5).
 
 ### 6.2 Format
 
-- **Payload:** JSON (Newtonsoft) of `SaveData` DTOs defined in Core: plain classes, lists instead of engine types.
-- **Contents:** board cells, generator states (charges, `refreshEndsUtc`), Sap and last regeneration UTC, wallet, XP and level, codex, orders, area and quest progress, story flags, RNG state, settings, daily gift state, and processed purchase transaction IDs (Phase 8).
-- **Envelope:** `{ schemaVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` is the `StateVersion` the snapshot was taken at (§6.3). It is strictly increasing across writes, across app sessions and across crashes, but not necessarily consecutive (coalesced versions are skipped). The loader uses it to tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
+- **Payload:** JSON (Newtonsoft) of `SaveData` DTOs defined in Core: plain classes, lists instead of engine types, timestamps as UTC ticks.
+- **Contents:** board cells (state, item ID, generator charges and `refreshEndsUtc`), Sap and next regen tick, RNG state, session statistics. Later phases add wallet, XP, codex, orders, quests, settings and processed purchase IDs.
+- **Envelope:** `{ formatVersion, sequence, savedAtUtc, sha256, payload }`. `sequence` increases by 1 with every write and continues from the highest sequence found on disk at startup, so the loader can always tell which file is newest. `sha256` (from `System.Security.Cryptography`, no extra package) detects truncated or corrupted files. It's an integrity check, not anti-cheat.
 - All time-based state uses **absolute UTC timestamps**, so a rollback to an older save never distorts timers.
 
-### 6.3 When saves happen: commit-on-command, one serialized write queue (revised in design review 2)
+### 6.3 When saves happen
 
-**Concurrency guarantees.** These are invariants of the save stack, and each one has a test in §6.7.
+- Each successful `GameSession` command (drag, tap, debug action…) increments `StateVersion`.
+- `SaveDriver` (Game) checks once per frame, in `LateUpdate`: if `StateVersion` changed since the last save, it writes one save **synchronously on the main thread**, without a disk flush. Several commands in one frame produce one write.
+- **Going to the background** (`OnApplicationPause(true)`, `OnApplicationFocus(false)` on Android, `OnApplicationQuit`): write the latest state **with a disk flush** (`FileStream.Flush(flushToDisk: true)`). If nothing changed since the last save but that save wasn't flushed, it's rewritten with a flush.
+- **Why no flush on ordinary saves:** finished writes and renames survive the *process* dying, because the operating system keeps them. A disk flush only helps against power loss (which isn't guaranteed) and costs most of the write time on mobile storage.
+- **Write failure** (for example, disk full): the previous save stays untouched, the error is logged, and the next frame tries again. A non-blocking warning appears after 3 consecutive failures.
+- **Budget:** a typical save (10–30 KB) should take ≤ 2 ms without a flush. ⚠ Measured on a device in Phase 7. Only if it exceeds the budget is a background writer considered, as a new decision.
+- **Purchases (Phase 8):** grant the purchase and its transaction ID as one command, save, and confirm to the store only after the save call returns successfully. If the app dies first, the store re-delivers the purchase, and the saved transaction ID prevents a double grant.
 
-| # | Guarantee | How |
-|---|---|---|
-| G1 | **One writer.** At most one write touches the save files at any time | Every write (background, lifecycle flush, critical, retry, post-load normalization) goes through one `SaveWriteQueue` with one worker. Nothing else calls `AtomicSaveStore.Write` |
-| G2 | **Monotonic sequence.** Every snapshot carries a sequence strictly greater than any snapshot taken before it, across app restarts | `StateVersion` (a 64-bit integer) increments on the main thread for every successful command and is stamped onto the snapshot. On load it resumes from `max(sequence of every readable file, including bak, tmp and quarantined files) + 1` |
-| G3 | **No stale overwrite.** An older snapshot can never replace a newer one on disk | The queue keeps `lastCommittedSequence`. Before step 1 of the protocol it **drops** any snapshot whose sequence is ≤ that value. Combined with G1, write order on disk is strictly increasing |
-| G4 | **Coalescing never loses the latest snapshot** | The queue holds an in-flight write plus **one pending slot** (latest wins). A new snapshot replaces the pending one only if its sequence is higher. A write in progress is never cancelled midway. When it finishes, the pending snapshot (always the newest taken) is written next |
-| G5 | **Process-crash-safe at every replacement stage** (power loss: best effort, §6.5.1) | Atomic protocol (§6.5) plus newest-valid recovery (§6.6). Tested by crashing after every individual file operation (§6.7) |
-| G6 | **No purchase confirmation before the save is committed** | A snapshot is *committed* only after step 3 of §6.5 (rename to `save.json`) has returned successfully, with the file contents flushed before it. `WhenCommitted(sequence)` completes only once `lastCommittedSequence ≥ sequence`. IAP confirmation waits on it (§6.4). "Committed" means safe against **process termination**. It is not a claim of power-loss durability (§6.5.1) |
+### 6.4 Atomic write protocol
 
-**Flow:**
-
-- Each successful `GameSession` command (drag, tap, deliver, sell, claim…) increments `StateVersion`. At the end of the frame, if `StateVersion > lastSnapshotSequence`, the main thread takes a **snapshot** (an immutable DTO copy, target < 1 ms) and posts it to the queue. Several commands in one frame share one snapshot.
-- The queue worker serializes, hashes and writes on a **background thread**. It touches only the immutable snapshot, never live models.
-- **Lifecycle flush** (`OnApplicationPause(true)`, `OnApplicationFocus(false)` on Android, `OnApplicationQuit`): take a snapshot of the latest state, post it, and **block until `WhenCommitted(thatSequence)`** completes, or 3 s pass. The flush never writes on its own; it only waits on the same queue, so G1 holds. iOS and Android give apps several seconds when backgrounding, far more than a save takes.
-- **Write failure** (for example, disk full): the previous save stays untouched and `lastCommittedSequence` doesn't move. The failed snapshot goes back into the pending slot (unless a newer one is already there), and the queue retries with backoff (1 s, 2 s, 4 s … max 30 s). A non-blocking warning appears after 3 failures.
-- Implementation: a lock-protected pending slot plus one worker loop on `Task.Run` (works under IL2CPP on iOS and Android). No parallel per-write tasks. In tests the worker is replaced by a manual, step-by-step executor (`IBackgroundWorker`), so every interleaving is deterministic.
-
-### 6.4 Critical transactions
-
-Rewards are always committed through the normal path above. These commands are additionally marked **critical**:
-
-| Transaction | Extra guarantee |
-|---|---|
-| IAP grant (Phase 8) | The grant and its transaction ID are applied as one command. The store purchase is confirmed (`ConfirmPendingPurchase`) only after `WhenCommitted(sequence of that command)` completes (G6). Until then the purchase stays *pending* at the store. If the app dies, the store re-delivers it on next launch: if the saved state already contains the transaction ID, it's confirmed without a second grant; otherwise it's granted then. If the write keeps failing, the purchase is never confirmed, and the store eventually re-delivers or refunds it according to its own rules |
-| Rewarded-ad grant, Moonpetal spend | The UI shows the reward immediately, but the scheduler moves the write ahead of any lifecycle wait. A failed write raises the warning at once instead of after 3 retries |
-| Order delivery, restoration task, level-up, daily gift | Same as above |
-
-### 6.5 Atomic write protocol
-
-0. Check G3: drop the snapshot if its sequence ≤ `lastCommittedSequence`. Delete any leftover `save.tmp` (it can only be from an interrupted earlier write, which the loader already considered at startup).
-1. Serialize the envelope, write it to `save.tmp`, `FileStream.Flush(flushToDisk: true)`, close.
+0. Delete any leftover `save.tmp` (it can only come from an interrupted earlier write, which the loader already considered at startup).
+1. Serialize the envelope and write it to `save.tmp` (with a disk flush only when going to the background).
 2. If `save.json` exists: delete `save.bak`, then rename `save.json` → `save.bak`.
-3. Rename `save.tmp` → `save.json`. The snapshot is now **committed**: set `lastCommittedSequence` and complete any `WhenCommitted` waiters.
-
-#### 6.5.1 Durability scope: process crash vs power loss (design review 3)
-
-| Failure | Guarantee | Basis |
-|---|---|---|
-| **Process termination**: app killed by the OS or user, crash, exception, `OnApplicationQuit` never called | **Guaranteed:** the next launch loads exactly the last committed save, or the one being written if it had reached a recoverable stage. Never corrupted, never empty | The kernel keeps completed writes and renames in its cache even when the process dies. The protocol and loader cover every intermediate state. Proven by the exhaustive crash test (§6.7) |
-| **Sudden power loss or OS/kernel crash** (battery pull, hard reset, kernel panic) | **Best effort, not guaranteed.** The expected outcome is the old or the new save, but a rollback to an older save (for example `save.bak`) is possible. Losing all three copies is very unlikely but **not ruled out** | See below |
-
-Why power loss isn't covered:
-- `FileStream.Flush(flushToDisk: true)` asks the OS to persist the **file's data** (`fsync` on Android/Linux; on Apple platforms `fsync` may only reach the drive's cache, and true persistence needs `F_FULLFSYNC`).
-- The **renames** in steps 2 and 3 are directory metadata changes. Making them durable needs an `fsync` on the **directory**, which .NET doesn't expose. Whether a rename survives power loss, and in which order relative to data, depends on the file system (ext4 and F2FS on Android, APFS on iOS), its mount options and the device's storage controller.
-- So no universal power-loss claim is made in code comments, store listings or support material.
-
-Mitigations and verification:
-- Flushing data before renaming, keeping `save.bak`, and newest-valid recovery make the common outcome "old or new save" on journaling file systems. The worst likely case is losing the last few seconds or minutes of play.
-- **Phase 7:** an optional `IDirectorySync` platform hook (no-op by default) that, where verified, calls `fsync` on the save directory (Android, through libc) and uses `F_FULLFSYNC` (iOS), via `DllImport` under IL2CPP. It's adopted only if it measurably helps in device testing and costs < 10 ms per save.
-- **Phase 7 ⚠ device verification:** a power-loss test on at least one Android and one iOS device (hard power-off during rapid saving, for example with a scripted loop and battery disconnect on a test device, or a forced hard reset). The result is recorded as "verified on these devices" only, never as a general guarantee.
-- **Purchases:** because committed ≠ power-loss durable, a purchase confirmed just before a power loss could theoretically be rolled back. Backstops: re-delivery of unconfirmed purchases, restore for non-consumables, saved transaction IDs, and (Phase 8, if a backend exists) server-side receipt validation, which allows a lost consumable grant to be restored by support.
+3. Rename `save.tmp` → `save.json`.
 
 `File.Replace` is deliberately **not** used: its behaviour on IL2CPP and Android file systems isn't guaranteed. The loader below makes every intermediate state recoverable.
 
-| Killed after… | Files on disk | Loader picks |
+| Process killed after… | Files on disk | Loader picks |
 |---|---|---|
 | During step 1 (partial tmp) | `json` (old), `bak`, broken `tmp` | `json` (old). The broken `tmp` fails its checksum |
 | Step 1 | `json` (old), `bak`, `tmp` (new) | `tmp` (new, highest sequence) |
@@ -269,45 +224,43 @@ Mitigations and verification:
 | Renaming `json` → `bak` | `bak` (old), `tmp` (new) | `tmp` (new) |
 | Step 3 | `json` (new), `bak` (old) | `json` (new) |
 
+### 6.5 Durability scope
+
+| Failure | Guarantee |
+|---|---|
+| **Process termination** (killed by the OS or user, crash, `OnApplicationQuit` never called) | **Guaranteed:** the next launch loads exactly the last completed save, or the one being written if it reached a recoverable stage. Never corrupted, never empty. Proven by the crash-recovery tests (§6.7) |
+| **Sudden power loss or OS/kernel crash** | **Best effort, not guaranteed.** Expected outcome: a recent valid save, possibly older than the last completed one (up to the last background flush, or `save.bak`). Renames are directory metadata, which .NET can't flush explicitly, and behaviour depends on the device's file system. No power-loss guarantee is claimed anywhere |
+
+⚠ Phase 7 runs a device kill test and a power-off test on at least one Android and one iOS device, and records the results as "observed on these devices" only.
+
 ### 6.6 Load and recovery
 
-1. Read `save.json`, `save.tmp` and `save.bak` if present. For each: parse the envelope, verify `sha256`, check that `schemaVersion` is known or can be migrated.
-2. Choose the valid file with the **highest `sequence`**. Set `StateVersion` to `max(readable sequences) + 1` and `lastCommittedSequence` to the chosen sequence (G2). If the chosen file isn't `save.json`, post it to the write queue so the file layout is normalized through the same protocol (G1).
-3. Invalid files are renamed `save.corrupt-<utc>.json` (the newest 3 are kept) for support, never silently deleted.
-4. No files → new game. Files existed but none was valid → new game, plus a one-time notice that the save couldn't be restored (the quarantined copies allow manual recovery).
+1. Read `save.json`, `save.tmp` and `save.bak` if present. For each: parse the envelope, verify `sha256`, check that `formatVersion` is known.
+2. Choose the valid file with the **highest `sequence`**. The next write continues from the highest sequence among all readable files.
+3. If the chosen file isn't `save.json`, write it again immediately through the protocol, so the file layout is normal again.
+4. Invalid files: the most recent one is kept as `save.corrupt.json` for support (one file, overwritten), never silently deleted.
+5. No files → new game. Files existed but none was valid → new game, plus a one-time notice that the save couldn't be restored.
 
-**Placement (changed from v0.1):** the whole save stack lives in **`WorldTree.Core.Save`**, so that every interruption test runs in .NET CI: `SaveData` DTOs, `SaveEnvelope`, `SaveSerializer`, `SaveMigrator`, `AtomicSaveStore` over `IFileSystem`, `SaveScheduler` (snapshots on command) and `SaveWriteQueue` (the single writer, background work behind `IBackgroundWorker`, so tests can run every interleaving step by step), and `PhysicalFileSystem` (plain `System.IO`, engine-free). Platform supplies only the directory (`Application.persistentDataPath`), and App forwards the lifecycle callbacks.
+**Placement:** the save stack lives in **`WorldTree.Core.Save`** (`SaveData`, `SaveEnvelope`, `SaveSerializer`, `SaveMapper`, `AtomicSaveStore`, `IFileSystem`, `PhysicalFileSystem`), so every recovery test runs in .NET CI. The Game assembly supplies the directory (`Application.persistentDataPath`) and the lifecycle callbacks.
 
-### 6.7 Interruption and recovery tests (Phase 1)
+### 6.7 Crash-recovery tests (Phase 1)
 
 | Test | Expectation |
 |---|---|
-| **Exhaustive process-crash test (G5):** run two consecutive writes (A then B) and, for every *k*, crash after the *k*-th file operation (each create, partial write, flush, delete and rename), including half-written `tmp` content | The next load returns exactly A or exactly B, never a corrupted or empty state, and never A when B was already committed. (This simulates process termination, where completed operations persist. It does not simulate power loss: §6.5.1) |
-| Crash, recover, write again (for every *k* above) | The next write after recovery succeeds, and its sequence is greater than every sequence on disk |
-| **Stale snapshot (G3):** post a snapshot with sequence 5 after 7 is durable | Dropped. Disk still holds 7 |
-| **Coalescing (G4):** while write 1 is in flight, post snapshots 2, 3, 4 | Exactly one more write happens, and it contains 4. Snapshot 3 posted after 4 is ignored |
-| **One writer (G1):** lifecycle flush while a background write is in flight | The flush waits. The `FaultInjectingFileSystem` records no overlapping operations, and written sequences are strictly increasing |
-| **Commit point (G6):** `WhenCommitted(n)` with a crash injected before step 3 | Never completes. It completes only after the rename to `save.json` succeeds |
-| Failed write followed by a newer snapshot | The newer snapshot is written. The failed older one is not written afterwards |
-| **Threaded stress test:** 10,000 commands from the main thread at random intervals (seeded) with a real background worker | Written sequences are strictly increasing, and the final file equals the last snapshot |
-| **Slow-background-save stress test (Phase 1 acceptance):** a `SlowFileSystem` wrapper adds a seeded random delay (0–200 ms) to every file operation, with occasional 1 s stalls. The main thread posts 2,000 snapshots at random intervals (0–20 ms), plus 20 lifecycle flushes at random points, with a real background worker | (1) **No overtaking:** the sequence of each committed write is strictly greater than the previous one. (2) **No stale replacement:** no write starts with a sequence ≤ `lastCommittedSequence`, and the file never goes from a higher to a lower sequence. (3) **Latest eventually persisted:** after posting stops and the queue drains, `save.json` holds the last posted snapshot exactly. (4) Every flush returns with `lastCommittedSequence` ≥ the sequence it posted, or times out after 3 s and reports it. (5) At most one file operation is in progress at any time |
-| `save.json` truncated, zero bytes, garbage, or wrong checksum | Falls back to the newest valid file and quarantines the bad one |
-| All three files invalid | New game, notice flag set, files quarantined |
+| **Exhaustive interruption test:** run two consecutive writes (A then B) and, for every *k*, kill the "process" after the *k*-th file operation (each delete, partial write, write, rename) using a fault-injecting in-memory file system | The next load returns exactly A or exactly B, never a corrupted or empty state, and never A once B's write completed |
+| Interrupt, recover, write again (for every *k* above) | The next write succeeds and has a higher sequence than every file on disk |
+| `save.json` truncated, empty, garbage, or wrong checksum | Falls back to the newest valid file and keeps the bad one as `save.corrupt.json` |
+| All three files invalid | New game, the "couldn't restore" flag is set |
 | Only `save.tmp` present | Loads it and normalizes the file layout |
 | `save.bak` has a higher sequence than `save.json` | Loads `bak` |
-| `IOException` on write (disk full) | The old save is unchanged, a retry is scheduled, the warning appears after 3 failures |
-| Scheduler: N commands during an in-progress write | Exactly one follow-up write, containing the latest state |
-| Scheduler: lifecycle flush during an in-progress write | Waits, then writes the latest state |
-| Scheduler: no state change | No write |
-| Full round-trip `GameSession` → disk → `GameSession` | Equal state, including RNG state and timers |
-| Duplicate purchase transaction ID (Phase 8) | Granted once |
-| Purchase confirmation waits on durability (Phase 8, with a fake store) | `ConfirmPendingPurchase` is not called before the rename to `save.json` succeeds. After a crash and re-delivery, it's granted exactly once |
-| ⚠ Device kill test (Phase 7, manual): force-stop the app 20 times during rapid merging | Every relaunch loads a consistent state |
+| `IOException` on write | The previous save is unchanged and still loads |
+| Sequence continues across restarts | The first write after loading has sequence = highest on disk + 1 |
+| Full round trip `GameSession` → disk → `GameSession` | Equal state, including RNG state and timers |
 
 ### 6.8 Migrations and future extensions
 
-- `SaveMigrator` chains `vN → vN+1` steps on the payload JSON before deserializing. Each migration has a fixture test with a real saved file from the previous version.
-- Cloud save is a post-launch extension behind `ISaveStore`.
+- `SaveMigrator` (added with the first schema change) chains `vN → vN+1` steps on the payload JSON before deserializing. Each migration gets a fixture test with a real saved file from the previous version.
+- Cloud save is a post-launch extension.
 
 ## 7. Presentation
 
@@ -325,12 +278,12 @@ Mitigations and verification:
 | `DragController` | Input System `Point` + `Press` actions. Handles the tap vs drag threshold, lifts the item to a drag layer, converts screen → grid, and calls `GameSession` on release |
 | `Tweener` | Allocation-free tween runner (struct tweens in a pooled array, easing functions, `Update`-driven) |
 | `FeedbackService` | Maps game events to VFX (pooled `ParticleSystem`s), SFX (`AudioSource` pool, pitch per level) and haptics |
-| `LayoutController` | Reads `Screen.safeArea` and DPI, runs `BoardLayoutSolver` (Core, pure math, unit-tested), positions the uGUI regions, and fits the board camera into the board rect. Spec: [`06-mobile-layout.md`](06-mobile-layout.md) |
+| `BoardCameraFitter` | Phase 1: fits the 7 × 9 board into the portrait safe area between the HUD and the bottom margin. The multi-tier layout from [`06-mobile-layout.md`](06-mobile-layout.md) (`BoardLayoutSolver`, reference-device tests) is deferred to Phase 6 |
 | `HudView`, `OrderPanelView`, `CodexView`, `DialogueView` | UI screens bound to model events |
 
 ### 7.3 Input specifics
 
-- One `WorldTreeInput.inputactions` asset with a `Gameplay` map: `Point` (`<Pointer>/position`) and `Press` (`<Pointer>/press`). This works identically for touch and mouse.
+- Two Input System actions, `Point` (`<Pointer>/position`) and `Press` (`<Pointer>/press`), created in code by `DragController`, so no hand-written `.inputactions` asset is needed. They work identically for touch and mouse. An actions asset can replace them when rebinding or more actions are needed.
 - Multi-touch is ignored during a drag (the first pointer wins). Drag is cancelled cleanly on app pause.
 
 ## 8. Performance budgets (mid-range device, for example a 2021 Android with 4 GB RAM)
@@ -342,16 +295,16 @@ Mitigations and verification:
 | Draw calls (board + HUD) | ≤ 80 (one atlas per domain) |
 | Texture memory | ≤ 250 MB, areas loaded and unloaded through Addressables (Phase 7) |
 | Cold start to interactive board | ≤ 5 s |
-| Save write | ≤ 10 ms on the main thread for a typical save (background thread if exceeded) |
+| Save write | ≤ 2 ms on the main thread for a typical save without a disk flush (§6.3) |
 
 ## 9. Testing strategy
 
 | Level | Tooling | Covers |
 |---|---|---|
-| **Core unit tests** | NUnit through Unity Test Framework (EditMode) **and** `tools/CoreTests` (.NET, runs in CI without Unity) | All rules: merge resolution, cleansing and revealing, generator merging, spawn placement, energy regeneration with fake clock, order feasibility, rewards, save round-trip, interruption and recovery (§6.7), migrations, layout solver for every reference device |
+| **Core unit tests** | NUnit through Unity Test Framework (EditMode) **and** `tools/CoreTests` (.NET, runs in CI without Unity) | All rules: merge resolution, cleansing and revealing, generator merging, spawn placement, energy regeneration with fake clock, order feasibility, rewards, save round-trip, crash recovery (§6.7), migrations |
 | **Data validation tests** | EditMode | Every `GameDatabase` asset passes the validator |
-| **PlayMode smoke tests** | Unity Test Framework | Boot → board visible, simulated drag merges two items, save → reload equality |
-| **Balance simulation** | Editor window + Core | Simulated player sessions estimate days per area (Phase 4) |
+| **PlayMode smoke tests** (later, with their own assembly) | Unity Test Framework | Boot → board visible, simulated drag merges two items, save → reload equality |
+| **Balance simulation** | C# tests on Core (Phase 4) | The Python scenarios ported to C# and compared with the Python reference output, then days per area |
 | **Manual device QA** | Checklist per phase | Feel, layout, haptics, performance |
 
 **CI (GitHub Actions):** `dotnet test tools/CoreTests` on every push. Unity EditMode and PlayMode tests and builds can be added through GameCI once the user provides a Unity license secret (Phase 7).
@@ -367,7 +320,7 @@ Mitigations and verification:
 These can't be verified in a headless environment and must be checked by the user in Unity 6:
 
 - Package resolution of `Packages/manifest.json` versions (commit the resolved `manifest.json` and `packages-lock.json`)
-- `.asmdef` references compile in the Editor: `Unity.TextMeshPro`, `Unity.InputSystem`, the precompiled `Newtonsoft.Json.dll` reference in `WorldTree.Core`, and the test assemblies
+- `.asmdef` references compile in the Editor: `Unity.TextMeshPro`, `Unity.InputSystem`, the precompiled `Newtonsoft.Json.dll` reference in `WorldTree.Core`, and the test assembly
 - TMP Essential Resources imported and committed
 - *Player Settings → Active Input Handling* set to **Input System Package (New)**
 - Scenes, prefabs, sorting layers, URP 2D Renderer asset, SpriteAtlas setup, and the Input Actions asset import

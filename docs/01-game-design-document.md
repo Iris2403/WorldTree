@@ -1,6 +1,6 @@
 # WORLD TREE: Game Design Document
 
-> Status: **Draft v0.4 (design review 3 applied), awaiting approval.** All numbers are starting values for tuning, not final balance.
+> Status: **v1.0 implementation baseline (frozen after design review 4).** Reopen a decision only if implementation exposes a concrete contradiction or blocker. All numbers are starting values for tuning, not final balance.
 
 ## 1. Overview
 
@@ -191,7 +191,7 @@ Evidence from the simulation (core player, 4 s per Sap, [`energy-simulation.md`]
 
 - **Focused play isn't an order problem.** Once every active order needs the other chain, tapping one generator progresses nothing. Even 105-charge generators (enough for a whole bar) leave a focused player at 0 orders per day. Raising capacity wouldn't help that player, so the 60-tap limit is a fair nudge toward what orders actually need. It's supported by the UI (the Waiting state names the ready generator, and the order card shows the countdown).
 - **Skewed orders are the real frustration risk.** When orders demand 73% from one chain, a player who does exactly what the orders say stalls every session. That would feel unfair, so it's prevented at the source by the **order demand rule** (§6.2). A 60% cap isn't enough (it still ends 25 of 28 sessions with a stall a few taps short). 55% removes all stalls, even for a strict player.
-- **More generators relax the rule automatically:** the cap is derived from capacity (§6.2), and a third chain from mid-Area 1 lowers each chain's share naturally.
+- **More generators will relax the rule:** a third chain from mid-Area 1 lowers each chain's share naturally. A capacity-based generalization of the cap is deferred until a third generator exists (roadmap D23).
 - The Phase 4 simulator re-checks this with real order generation; its acceptance is 0 forced stalls for order-driven players (roadmap).
 
 ### 4.3 Generator merging (exact rules)
@@ -220,7 +220,7 @@ Evidence from the simulation (core player, 4 s per Sap, [`energy-simulation.md`]
 - **The real gain from an upgrade is efficiency:** better drop tables convert each Sap into more L1-equivalents (1.24 → 1.40 at Lv2). That gain is intended and is priced by sprout scarcity: Lv*N* costs 2^(N−1) sprouts.
 - **The wait skipped is bounded** by one refresh timer (≤ 20 min at Lv1), because of the first-tap refresh rule.
 
-The Phase 4 balance simulator must report, per profile and per day: generator upgrades obtained (by source), refresh time skipped through merges, extra taps made possible by skipped waits, the Sap → L1-equivalent conversion rate, and the share of all taps made on a freshly merged generator. **Threshold:** if taps enabled by skipped waits exceed **5% of a core player's daily taps**, sprout drop rates are reduced first. Only if that fails is the merge rule changed to the fallback: *the result inherits the later of the two inputs' refresh timers*.
+The Phase 4 balance simulator measures one number: **extra taps enabled by skipped refresh waits**, per profile and per day. **Threshold:** if it exceeds **5% of a core player's daily taps**, sprout drop rates are reduced first. Only if that fails is the merge rule changed to the fallback: *the result inherits the later of the two inputs' refresh timers*.
 
 ## 5. Energy (Sap)
 
@@ -295,7 +295,7 @@ This meets the §9 targets (Area 1 in 2–3 days, Area 5 in 6–8 weeks). Order 
 - **Story orders** are authored in `AreaDefinition` and always take precedence while their quest is active.
 - **Procedural orders** are drawn from chains the player has *unlocked and can currently generate*. The requested level targets the player's "comfort level" for that chain (based on the highest level they've reached), with occasional stretch requests.
 - **Feasibility guarantee:** an order must never request an item from a chain whose generator the player doesn't have.
-- **Demand rule (design review 3):** across the active orders plus the next queued ones, the share of demand (in level-1 equivalents) for any chain *c* must not exceed `maxShare(c) = guaranteedCapacity(c) ÷ 108`, rounded down to the nearest 5%. 108 = a full bar (100) + in-session regen (≈ 4) + a small margin. With two Lv1 generators (60 charges each) that's **55%**. Also, no more than **2 consecutive** procedural orders may come from the same chain. Story orders count toward the share; if a story order would break the cap, the procedural orders around it compensate. This is what keeps players who follow their orders from stalling (§4.4).
+- **Demand rule (simplified in design review 4):** while the player has two generators, at most **55%** of the demand across the active orders plus the next queued ones (in level-1 equivalents) may come from one chain, and no more than **2 consecutive** procedural orders may come from the same chain. Both numbers are configurable (`OrderPoolDefinition.maxChainShare = 0.55`, `maxConsecutiveSameChain = 2`). Story orders count toward the share; procedural orders around them compensate. This keeps players who follow their orders from stalling (§4.4). A generalized capacity-based cap is deferred until a third generator exists.
 - The reward value scales with the total "merge cost" of the requested items (level-1 equivalents), so rewards feel fair.
 
 ### 6.3 Quests
