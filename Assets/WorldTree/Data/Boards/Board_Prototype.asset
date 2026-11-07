@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 86417fda4e33644c8b14d1006d8cbc1d, type: 3}
+  m_Name: Board_Prototype
+  m_EditorClassIdentifier: WorldTree.Data::WorldTree.Data.BoardLayoutDefinition
+  width: 7
+  height: 9
+  placements:
+  - x: 2
+    y: 4
+    itemId: gen.seed_pouch.1
+    state: 0
+  - x: 4
+    y: 4
+    itemId: gen.moonwell_spring.1
+    state: 0
+  - x: 3
+    y: 7
+    itemId: gen.seed_pouch.1
+    state: 0
+  - x: 1
+    y: 1
+    itemId: item.nature.01
+    state: 0
+  - x: 5
+    y: 1
+    itemId: item.nature.01
+    state: 0
+  - x: 1
+    y: 7
+    itemId: item.water.01
+    state: 0
+  - x: 5
+    y: 7
+    itemId: item.water.01
+    state: 0
