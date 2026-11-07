@@ -12,8 +12,8 @@ namespace WorldTree.Game
         /// <summary>Share of the safe-area height reserved for the HUD bar at the top. Matches <see cref="HudView"/>.</summary>
         public const float TopReserved = 0.14f;
 
-        /// <summary>Share of the safe-area height kept free at the bottom (messages, thumb room).</summary>
-        public const float BottomReserved = 0.07f;
+        /// <summary>Share of the safe-area height kept at the bottom for the action bar and messages.</summary>
+        public const float BottomReserved = 0.12f;
 
         private const float WorldMargin = 0.4f;
 

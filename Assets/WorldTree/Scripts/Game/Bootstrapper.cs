@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using WorldTree.Core;
 using WorldTree.Core.Common;
 using WorldTree.Core.Content;
@@ -69,6 +71,13 @@ namespace WorldTree.Game
             _store = new AtomicSaveStore(new PhysicalFileSystem(), Path.Combine(Application.persistentDataPath, "save"));
             var load = _store.Load(_clock.UtcNow);
             var session = TryRestore(load) ?? NewGame();
+
+            foreach (var error in BoardLayoutValidator.Validate(_layout, _catalog))
+                Debug.LogWarning("[WorldTree] Starting layout: " + error);
+
+            // uGUI buttons need an EventSystem; the Input System's UI module drives it.
+            if (FindAnyObjectByType<EventSystem>() == null)
+                new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
 
             _tweener = gameObject.AddComponent<Tweener>();
             _board = new GameObject("Board").AddComponent<BoardView>();
