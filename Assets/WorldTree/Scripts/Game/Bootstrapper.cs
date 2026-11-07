@@ -41,9 +41,12 @@ namespace WorldTree.Game
         private void Awake()
         {
             Application.targetFrameRate = 60;
+            // Fallback: the setup menu keeps the database in a Resources folder, so a missing
+            // Inspector reference never stops the prototype from starting.
+            if (database == null) database = Resources.Load<GameDatabase>(GameDatabase.ResourcesName);
             if (database == null)
             {
-                Debug.LogError("[WorldTree] Bootstrapper has no GameDatabase. Run WorldTree → Setup → Build Prototype Scene.");
+                Debug.LogError("[WorldTree] No GameDatabase found. Use the menu bar: WorldTree → Setup → Build Prototype Scene.");
                 enabled = false;
                 return;
             }

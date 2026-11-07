@@ -15,6 +15,9 @@ namespace WorldTree.Data
     [CreateAssetMenu(menuName = "WorldTree/Game Database", fileName = "GameDatabase")]
     public sealed class GameDatabase : ScriptableObject
     {
+        /// <summary>Asset name inside a Resources folder, used as the Bootstrapper's fallback.</summary>
+        public const string ResourcesName = "GameDatabase";
+
         [SerializeField] private List<ItemChainDefinition> chains = new List<ItemChainDefinition>();
         [SerializeField] private List<GeneratorDefinition> generators = new List<GeneratorDefinition>();
         [SerializeField] private BoardLayoutDefinition startingLayout;
