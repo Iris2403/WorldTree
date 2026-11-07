@@ -2,19 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project status
+## Project
 
-WorldTree is a planned Unity game project. The repository currently has no Unity project yet, only a placeholder `README.md`. No build, lint, or test commands exist yet.
+WORLD TREE is an original mobile-first Merge-2 fantasy puzzle game (Unity 6 LTS, C#). **Load the `worldtree-game-developer` skill (`.claude/skills/worldtree-game-developer/SKILL.md`) for any work here.** It holds the architecture rules, environment constraints, testing requirements and phase-gating workflow.
 
-Intended direction, from the project owner's setup notes:
-- A **2D** game: sprites, sprite atlases, and pixel-perfect rendering.
-- UI built with Unity UI (uGUI and/or UI Toolkit).
-- Live-game features and in-app purchases.
-- Development is meant to use the official Unity agent plugin (`Unity-Technologies/unity-agent-plugin`) for Unity CLI, package management, sprite, UI, and IAP workflows.
+Design and technical sources of truth live in `docs/` (GDD, architecture, structure, roadmap, prototype spec). Current phase and status: `docs/04-roadmap.md`.
 
-## Environment notes
+## Key constraints
 
-- Cloud sessions for this repo have no Unity Editor installed, so you can't open, build, or play-test the project here. Changes to scenes, prefabs, and assets have to be made as text (YAML `.unity`/`.prefab`/`.asset`, plus `.meta` files) or C# scripts, and checked in the Editor on a local machine.
-- When the Unity project is created, keep the standard layout at the repo root (`Assets/`, `Packages/`, `ProjectSettings/`) and add a Unity `.gitignore` (ignore `Library/`, `Temp/`, `Obj/`, `Build/`, `Logs/`, `UserSettings/`). Commit every `.meta` file along with its asset.
+- No Unity Editor is available in cloud sessions. Don't run Editor or slash commands, and don't hand-write `.meta`, scene, prefab or `ProjectSettings` files. Mark unverified work as "⚠ Requires Unity Editor validation".
+- `WorldTree.Core` is engine-free pure C# (`noEngineReferences`). All gameplay rules live there and are tested both in Unity (EditMode) and through `dotnet test tools/CoreTests`.
+- Work one phase at a time, and get user approval before starting the next.
 
-Update this file with real build, test, and architecture details once the Unity project exists.
+## Commands (from Phase 1)
+
+```bash
+dotnet test tools/CoreTests                                   # all Core tests
+dotnet test tools/CoreTests --filter "FullyQualifiedName~Merge"  # a subset / single test
+```
