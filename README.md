@@ -35,7 +35,7 @@ This compiles `Assets/WorldTree/Scripts/Core` and `Assets/WorldTree/Tests` direc
    ```bash
    git clone https://github.com/Iris2403/WorldTree.git
    ```
-2. **Unity Hub → Add → Add project from disk**, pick the cloned folder, and open it with **Unity 6.3 LTS**. The repository has no `ProjectSettings/` yet, so Unity creates them on first open, along with `Library/` and `.meta` files.
+2. **Unity Hub → Add → Add project from disk**, pick the cloned folder, and open it with **Unity 6.3 LTS**. Make sure you're on the branch with the project (currently `claude/zealous-cray-vkfj0o`, until it's merged into `main`). The repository only contains `ProjectSettings/ProjectVersion.txt`; Unity creates the rest of `ProjectSettings/`, `Library/` and the `.meta` files on first open. If Hub says the version 6000.3.0f1 isn't installed, choose your installed Unity 6.3 LTS version instead.
    - If Hub won't add the folder, start the editor directly with `-projectPath`:
      ```bash
      "<path to Unity 6000.3.x editor>" -projectPath "<path to WorldTree>"

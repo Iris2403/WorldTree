@@ -10,7 +10,7 @@ Design and technical sources of truth live in `docs/` (GDD, architecture, struct
 
 ## Key constraints
 
-- No Unity Editor is available in cloud sessions. Don't run Editor or slash commands, and don't hand-write `.meta`, scene, prefab or `ProjectSettings` files. Mark unverified work as "⚠ Requires Unity Editor validation".
+- No Unity Editor is available in cloud sessions. Don't run Editor or slash commands, and don't hand-write `.meta`, scene, prefab or `ProjectSettings` files (sole exception: the `ProjectSettings/ProjectVersion.txt` marker, roadmap D26). Mark unverified work as "⚠ Requires Unity Editor validation".
 - `WorldTree.Core` is engine-free pure C# (`noEngineReferences`). All gameplay rules live there and are tested both in Unity (EditMode) and through `dotnet test tools/CoreTests`.
 - Work one phase at a time, and get user approval before starting the next.
 
