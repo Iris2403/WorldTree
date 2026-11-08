@@ -9,6 +9,8 @@ using WorldTree.Core.Energy;
 using WorldTree.Core.Generators;
 using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
+using WorldTree.Core.Orders;
+using WorldTree.Core.Progression;
 
 namespace WorldTree.Core
 {
@@ -33,8 +35,11 @@ namespace WorldTree.Core
         }
 
         public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, Wallet wallet, Codex codex, Satchel satchel,
-            uint randomState, IClock clock, DailyGift dailyGift = null, DailyLimits dailyLimits = null)
+            uint randomState, IClock clock, DailyGift dailyGift = null, DailyLimits dailyLimits = null,
+            PlayerProgress progress = null, OrderBoard orders = null)
         {
+            Progress = progress ?? new PlayerProgress(1, 0);
+            Orders = orders ?? new OrderBoard(1, 0, null);
             DailyGift = dailyGift ?? new DailyGift(0, null);
             DailyLimits = dailyLimits ?? new DailyLimits(null, 0, 0);
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -47,6 +52,7 @@ namespace WorldTree.Core
             _random = new XorShiftRandom(randomState);
             Stats = new SessionStats(clock.UtcNow);
             DiscoverVisibleSilently();
+            RefillOrders();
         }
 
         /// <summary>Raised after an item moved to an empty cell: (from, to).</summary>
@@ -97,6 +103,15 @@ namespace WorldTree.Core
         /// <summary>Raised when a consumable generator used its last tap and vanished: (cell).</summary>
         public event Action<GridPos> GeneratorExhausted;
 
+        /// <summary>Raised when the active orders changed (completed, swapped, new order, delivered item).</summary>
+        public event Action OrdersChanged;
+
+        /// <summary>Raised when an order was completed: (order). Rewards are already granted.</summary>
+        public event Action<Order> OrderCompleted;
+
+        /// <summary>Raised on each level-up: (new level).</summary>
+        public event Action<int> LeveledUp;
+
         /// <summary>Raised when a reward item was placed on the board: (cell, item). Rewards that went to the satchel raise <see cref="SatchelChanged"/>.</summary>
         public event Action<GridPos, ItemInstance> ItemAwarded;
 
@@ -108,6 +123,8 @@ namespace WorldTree.Core
         public Satchel Satchel { get; }
         public DailyGift DailyGift { get; }
         public DailyLimits DailyLimits { get; }
+        public PlayerProgress Progress { get; }
+        public OrderBoard Orders { get; }
         public SessionStats Stats { get; }
         public long StateVersion { get; private set; }
         public uint RandomState => _random.State;
@@ -155,6 +172,37 @@ namespace WorldTree.Core
         }
 
         public bool CanClaimDailyGift => DailyGift.CanClaim(LocalDay.Today(_clock));
+
+        /// <summary>Time until an order can be swapped again, or zero.</summary>
+        public TimeSpan OrderSwapCooldownLeft
+        {
+            get
+            {
+                if (Orders.LastSwapUtc == null) return TimeSpan.Zero;
+                var left = Orders.LastSwapUtc.Value + OrderRules.SwapCooldown - _clock.UtcNow;
+                return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+            }
+        }
+
+        /// <summary>True if every still-needed item of the order is on an Open cell (GDD §6.1: the card shows ✓).</summary>
+        public bool CanDeliver(int orderId)
+        {
+            var order = Orders.Find(orderId);
+            return order != null && TryFindItemsFor(order, null);
+        }
+
+        /// <summary>True if an Open item with this ID is on the board (for highlighting order requirements).</summary>
+        public bool IsOnBoard(string itemId)
+        {
+            for (int y = 0; y < Board.Height; y++)
+                for (int x = 0; x < Board.Width; x++)
+                {
+                    var p = new GridPos(x, y);
+                    var item = Board.GetItem(p);
+                    if (item != null && item.ItemId == itemId && Board.GetState(p) == CellState.Open) return true;
+                }
+            return false;
+        }
 
         public static GameSession NewGame(ICatalog catalog, BoardLayout layout, EnergyConfig energy, IClock clock, uint seed)
         {
@@ -328,6 +376,77 @@ namespace WorldTree.Core
         public GeneratorState GetSatchelGeneratorState(int slot) =>
             slot >= 0 && slot < Satchel.Count ? RefreshedGenerator(Satchel.Items[slot]) : null;
 
+        /// <summary>Completes an order with items from the board (the Deliver button, GDD §6.1).</summary>
+        public DeliverResult DeliverOrder(int orderId)
+        {
+            var order = Orders.Find(orderId);
+            if (order == null) return DeliverResult.OrderNotFound;
+            var cells = new List<GridPos>();
+            if (!TryFindItemsFor(order, cells)) return DeliverResult.MissingItems;
+
+            int i = 0;
+            foreach (var r in order.Requirements)
+            {
+                if (r.Fulfilled) continue;
+                var cell = cells[i++];
+                Board.SetItem(cell, null);
+                r.Fulfilled = true;
+                ItemStored?.Invoke(cell); // the view removes the item; same animation as leaving the board
+            }
+            CompleteOrder(order);
+            return DeliverResult.Completed;
+        }
+
+        /// <summary>
+        /// Drags one item onto an order card (GDD §6.1). If the order needs it, the item leaves the board
+        /// and counts towards the order; the order completes when nothing else is needed.
+        /// </summary>
+        public DeliverResult ContributeToOrder(GridPos pos, int orderId)
+        {
+            var order = Orders.Find(orderId);
+            if (order == null) return DeliverResult.OrderNotFound;
+            if (!Board.IsInside(pos) || Board.GetItem(pos) == null) return DeliverResult.Empty;
+            if (Board.GetState(pos) != CellState.Open) return DeliverResult.Locked;
+            var item = Board.GetItem(pos);
+            OrderRequirement match = null;
+            foreach (var r in order.Requirements)
+            {
+                if (!r.Fulfilled && r.ItemId == item.ItemId)
+                {
+                    match = r;
+                    break;
+                }
+            }
+            if (match == null) return DeliverResult.NotNeeded;
+
+            Board.SetItem(pos, null);
+            match.Fulfilled = true;
+            ItemStored?.Invoke(pos);
+            if (order.IsComplete)
+            {
+                CompleteOrder(order);
+                return DeliverResult.Completed;
+            }
+            Changed();
+            OrdersChanged?.Invoke();
+            return DeliverResult.Accepted;
+        }
+
+        /// <summary>Replaces an order without progress with a new one, once per 30 minutes (GDD §6.1).</summary>
+        public SwapOrderResult SwapOrder(int orderId)
+        {
+            var order = Orders.Find(orderId);
+            if (order == null) return SwapOrderResult.OrderNotFound;
+            if (order.HasProgress) return SwapOrderResult.HasProgress;
+            if (OrderSwapCooldownLeft > TimeSpan.Zero) return SwapOrderResult.OnCooldown;
+            Orders.Remove(order);
+            Orders.LastSwapUtc = _clock.UtcNow;
+            Changed();
+            RefillOrders();
+            OrdersChanged?.Invoke();
+            return SwapOrderResult.Swapped;
+        }
+
         /// <summary>Moonpetal cost to finish the running refresh of the generator at <paramref name="pos"/> now, or 0.</summary>
         public int SkipCostAt(GridPos pos)
         {
@@ -417,6 +536,13 @@ namespace WorldTree.Core
             return ClaimResult.Claimed;
         }
 
+        public void DebugAddXp(int amount)
+        {
+            AddXp(amount);
+            Changed();
+            RefillOrders(); // a 4th slot may have unlocked
+        }
+
         public void DebugAddMoonpetals(int amount)
         {
             Wallet.AddMoonpetals(amount);
@@ -488,6 +614,166 @@ namespace WorldTree.Core
             }
         }
 
+        private void CompleteOrder(Order order)
+        {
+            Orders.Remove(order);
+            Orders.CountCompleted();
+            Wallet.AddGlimmer(order.Glimmer);
+            Wallet.AddLifebloom(order.Lifebloom);
+            Changed();
+            WalletChanged?.Invoke();
+            if (order.BonusItemId != null) Grant(Reward.Item(order.BonusItemId));
+            AddXp(order.Xp);
+            OrderCompleted?.Invoke(order);
+            RefillOrders();
+            OrdersChanged?.Invoke();
+        }
+
+        /// <summary>Adds XP; each level-up refills Sap to at least the cap and pays Glimmer and Moonpetals (GDD §5, §7.1).</summary>
+        private void AddXp(int amount)
+        {
+            int before = Progress.Level;
+            int gained = Progress.AddXp(amount);
+            for (int level = before + 1; level <= before + gained; level++)
+            {
+                Energy.Refresh(_clock.UtcNow);
+                int missing = Energy.Config.Cap - Energy.Amount;
+                if (missing > 0) Energy.Add(missing, _clock.UtcNow);
+                Wallet.AddGlimmer(PlayerProgress.LevelUpGlimmer(level));
+                Wallet.AddMoonpetals(PlayerProgress.LevelUpMoonpetals);
+                LeveledUp?.Invoke(level);
+            }
+            if (gained > 0)
+            {
+                EnergyChanged?.Invoke();
+                WalletChanged?.Invoke();
+            }
+        }
+
+        /// <summary>Fills empty order slots with new procedural orders (GDD §6.2).</summary>
+        private void RefillOrders()
+        {
+            int slots = OrderRules.SlotsForLevel(Progress.Level);
+            bool added = false;
+            while (Orders.Active.Count < slots)
+            {
+                var order = OrderGenerator.Generate(new OrderGenerator.Context
+                {
+                    AvailableChains = AvailableItemChains(),
+                    ComfortLevel = ComfortLevel,
+                    RecentDemand = Orders.RecentDemand,
+                    RecentTotal = Orders.RecentTotal,
+                    OpenDemand = OpenDemand,
+                    ProducibleNow = ProducibleNow,
+                    RecentChains = Orders.RecentChains,
+                    PlayerLevel = Progress.Level,
+                    OrderId = Orders.NextId,
+                    CompletedOrders = Orders.Completed + Orders.Active.Count,
+                }, _random);
+                if (order == null) break;
+                Orders.TakeId();
+                int value = 0;
+                foreach (var r in order.Requirements) value += OrderRules.Value(Catalog.GetItem(r.ItemId));
+                Orders.Add(order, value);
+                added = true;
+            }
+            if (added) OrdersChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Item chains the player can generate now: those dropped by a permanent generator on an Open cell
+        /// or in the satchel (GDD §6.2 feasibility guarantee).
+        /// </summary>
+        public List<ChainDef> AvailableItemChains()
+        {
+            var chainIds = new List<string>();
+            void Consider(ItemInstance item)
+            {
+                if (item == null) return;
+                var def = Catalog.GetItem(item.ItemId);
+                if (!def.IsGenerator || def.Generator.IsConsumable) return;
+                string chain = Catalog.GetItem(def.Generator.Drops.Entries[0].ItemId).ChainId;
+                if (!chainIds.Contains(chain)) chainIds.Add(chain);
+            }
+            for (int y = 0; y < Board.Height; y++)
+                for (int x = 0; x < Board.Width; x++)
+                {
+                    var p = new GridPos(x, y);
+                    if (Board.GetState(p) == CellState.Open) Consider(Board.GetItem(p));
+                }
+            foreach (var item in Satchel.Items) Consider(item);
+
+            var chains = new List<ChainDef>();
+            foreach (var chain in Catalog.Chains) if (chainIds.Contains(chain.Id)) chains.Add(chain);
+            return chains;
+        }
+
+        private int ComfortLevel(string chainId)
+        {
+            int best = 1;
+            foreach (var chain in Catalog.Chains)
+            {
+                if (chain.Id != chainId) continue;
+                foreach (var level in chain.Levels)
+                    if (Codex.IsDiscovered(level.Id) && level.Level > best) best = level.Level;
+            }
+            return best;
+        }
+
+        private int OpenDemand(string chainId)
+        {
+            int demand = 0;
+            foreach (var order in Orders.Active)
+                foreach (var r in order.Requirements)
+                {
+                    if (r.Fulfilled) continue;
+                    var def = Catalog.GetItem(r.ItemId);
+                    if (def.ChainId == chainId) demand += OrderRules.Value(def);
+                }
+            return demand;
+        }
+
+        /// <summary>Level-1 equivalents the chain's permanent generators on Open cells can still produce this cycle.</summary>
+        private int ProducibleNow(string chainId)
+        {
+            int total = 0;
+            for (int y = 0; y < Board.Height; y++)
+                for (int x = 0; x < Board.Width; x++)
+                {
+                    var p = new GridPos(x, y);
+                    var item = Board.GetItem(p);
+                    if (item?.Generator == null || Board.GetState(p) != CellState.Open) continue;
+                    var def = Catalog.GetItem(item.ItemId);
+                    if (def.Generator.IsConsumable || Catalog.GetItem(def.Generator.Drops.Entries[0].ItemId).ChainId != chainId) continue;
+                    GeneratorRules.Refresh(item.Generator, def.Generator, _clock.UtcNow);
+                    total += item.Generator.Charges; // each tap yields at least one level-1 equivalent
+                }
+            return total;
+        }
+
+        /// <summary>Finds distinct Open cells holding every unfulfilled requirement. Fills <paramref name="cells"/> if given.</summary>
+        private bool TryFindItemsFor(Order order, List<GridPos> cells)
+        {
+            var used = new List<GridPos>();
+            foreach (var r in order.Requirements)
+            {
+                if (r.Fulfilled) continue;
+                bool found = false;
+                for (int y = 0; y < Board.Height && !found; y++)
+                    for (int x = 0; x < Board.Width && !found; x++)
+                    {
+                        var p = new GridPos(x, y);
+                        var item = Board.GetItem(p);
+                        if (item == null || item.ItemId != r.ItemId || Board.GetState(p) != CellState.Open || used.Contains(p)) continue;
+                        used.Add(p);
+                        found = true;
+                    }
+                if (!found) return false;
+            }
+            cells?.AddRange(used);
+            return true;
+        }
+
         private void Grant(Reward reward)
         {
             switch (reward.Kind)
@@ -534,10 +820,12 @@ namespace WorldTree.Core
         private void DiscoverWithReward(string itemId)
         {
             if (!Codex.Discover(itemId)) return;
-            int reward = Catalog.GetItem(itemId).Level * EconomyRules.DiscoveryGlimmerPerLevel;
+            int level = Catalog.GetItem(itemId).Level;
+            int reward = level * EconomyRules.DiscoveryGlimmerPerLevel;
             Wallet.AddGlimmer(reward);
             ItemDiscovered?.Invoke(itemId, reward);
             WalletChanged?.Invoke();
+            AddXp(level); // GDD §7.1: first discoveries give XP too (Phase 4)
         }
 
         /// <summary>

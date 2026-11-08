@@ -10,7 +10,13 @@ namespace WorldTree.Game
     public sealed class BoardCameraFitter : MonoBehaviour
     {
         /// <summary>Share of the safe-area height reserved for the HUD bar at the top. Matches <see cref="HudView"/>.</summary>
-        public const float TopReserved = 0.14f;
+        public const float TopReserved = TopBarShare + OrdersShare;
+
+        /// <summary>Share of the safe-area height for the top bar (Sap, level, currencies, selection).</summary>
+        public const float TopBarShare = 0.13f;
+
+        /// <summary>Share of the safe-area height for the orders strip under the top bar (Phase 4).</summary>
+        public const float OrdersShare = 0.15f;
 
         /// <summary>Share of the safe-area height kept at the bottom for the action bar and messages.</summary>
         public const float BottomReserved = 0.12f;

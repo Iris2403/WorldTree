@@ -72,6 +72,10 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D33 | Level-up Sap refill | Moves to Phase 4 | It needs player levels and XP, which are Phase 4 |
 | D34 | Skip cost | 1 Moonpetal per started 5 minutes of remaining refresh time, minimum 1 (a fresh Lv1 cycle costs 4) | The GDD named the mechanic without a price. Simple, proportional, and cheap enough to try in the prototype; tuned in Phase 4 |
 | D35 | Daily Gift contents and ads | 7-day calendar per GDD §5 (contents listed there), one claim per local day via a new `IClock.LocalUtcOffset`. Ad rewards (refresh speed-up, +25 Sap up to 5/day) are implemented in Core behind an `IAdService` that is disabled until Phase 8; a debug "fake ads" switch tests them | Daily limits reset at local midnight (GDD §5), which needs local time. Ads are Phase 8, but their game rules are cheap to finish and test now |
+| D36 | Order rewards and levels | Order value = sum of level-1 equivalents of its items (a level-k item = 2^(k−1)). Rewards: Glimmer = value, XP = value, Lifebloom = max(1, (value + 2) / 4); every 5th order adds a Mystery Acorn. XP to next level = 15 × level; each level-up refills Sap to the cap and pays 10 × level Glimmer and 2 Moonpetals; first discoveries also give XP (= item level). Orders ask for 1 item below level 3, up to 2 below level 6, up to 3 after | The GDD names these rewards without numbers. Simple formulas tied to merge cost, tuned once area costs exist (Phase 5) |
+| D37 | Demand rule implementation | With two or more chains, each new order is the candidate (one rolled per chain) that leaves the least demand over the last 20 orders including itself, max 2 in a row per chain, with a re-roll guard against exceeding 55% in the window | Choosing the chain first and sizing afterwards let 1 seed in 3000 reach 56%. Balancing on the window including the new order's size keeps the worst 60-order stream at 54.1% (average 50.9%) |
+| D38 | Orders the generators can cover | The generator also avoids orders that, together with the other open orders on that chain, need more than the chain's generators can still produce this cycle. Result: 0 stalls for order-driven players with real orders (3 profiles × 4 levels × 50 seeds). "Strict" players (only the oldest order) stop early in 1.05% of sessions, capped at 2% by a test | Real orders grow larger than the Python patterns (up to ~39 taps), so a 50/50 average alone still produced occasional forced stalls |
+| D39 | Days per area | Checked in Phase 5, when area restoration costs exist. Phase 4 provides the Lifebloom income they will be set from | "Days per area" needs Lifebloom costs per area, which are Phase 5 content |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -125,7 +129,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Stop and restart Play: blight state, Satchel, Glimmer and Codex are restored
 - [ ] Buttons don't trigger board taps underneath; the board still fits above the bottom bar in Device Simulator
 
-## Phase 3: Generators and energy 🔄
+## Phase 3: Generators and energy ✅
 
 **Deliverables:** multiple generators, charges and first-tap refresh, generator merging and upgrades (Lv1–5), drop tables, consumable generators, full energy rules (offline regen, over-cap; level-up refill moved to Phase 4, D33), Daily Gift, `IAdService` no-op hook, Moonpetal skip and refill.
 
@@ -135,7 +139,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Core: Seed Pouch, Moonwell Spring and Woodwright's Stump at levels 1–5 (GDD §4.2 table), Mystery Acorn consumable generator, Moonpetals, refresh skip, Sap refill with escalating daily cost, rewarded-ad speed-up and ad Sap (daily cap), Daily Gift, local-day resets, saves (older saves still load)
 - ✅ Tests: 136 passing via `dotnet test tools/CoreTests` (24 new)
 - ✅ Unity layer written: Moonpetals in the HUD, Skip and ad speed-up buttons for a selected refreshing generator, Gift panel, Sap+ panel (refill, watch ad), Mystery Acorn visuals, debug buttons (+20 Moonpetals, allow Daily Gift again, fake ads on/off). Type-checked against Unity API stubs only. **Not yet run in Unity**
-- ⬜ Unity Editor validation (checklist below)
+- ✅ Unity Editor validation: play-tested by the user
 
 **⚠ Editor validation checklist:**
 - [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → **Update**, then *WorldTree → Validate Data* is clean
@@ -147,13 +151,28 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Debug → *Fake ads: ON*: "Ad: ½ time" appears for a refreshing generator (once per cycle), and the Sap+ panel shows "Watch ad" (5 per day)
 - [ ] Stop and restart Play: Moonpetals, gift progress, refill cost and ad counts are kept
 
-## Phase 4: Orders and rewards ⬜
+## Phase 4: Orders and rewards 🔄
 
-**Deliverables:** OrderBoard and OrderGenerator with the feasibility guarantee and the demand rule (GDD §6.2: configurable 55% per chain, max 2 consecutive), delivery by tap and by drag, rewards (Glimmer, XP, Lifebloom, chests), player levels and unlocks, reward fly-to-HUD, and balance simulation as **C# tests on Core**: the scenarios of `tools/balance/energy_sim.py` ported and their outputs compared with the Python reference. The Python script is retired only after the comparison passes.
+**Deliverables:** OrderBoard and OrderGenerator with the feasibility guarantee and the demand rule (GDD §6.2), delivery by tap and by drag, rewards (Glimmer, XP, Lifebloom, chests), player levels and unlocks, reward fly-to-HUD, and balance simulation as **C# tests on Core**: the scenarios of `tools/balance/energy_sim.py` ported and their outputs compared with the Python reference.
 
-**Acceptance:** order feasibility property tests (thousands of seeded runs). The C# scenarios match the Python reference output. Days per area fall within the GDD §5.1 targets. Order-driven players have 0 generator stalls with the real order generator. Extra taps enabled by skipped refresh waits are ≤ 5% of a core player's daily taps (otherwise apply the GDD §4.3 remedy).
+**Acceptance:** order feasibility property tests (thousands of seeded runs). The C# scenarios match the Python reference output. Days per area fall within the GDD §5.1 targets (moved to Phase 5, D39). Order-driven players have 0 generator stalls with the real order generator. Extra taps enabled by skipped refresh waits are ≤ 5% of a core player's daily taps.
 
-**⚠ Editor validation:** order panel UX, reward flow feel.
+**Status:**
+- ✅ Core: orders (3 slots, 4th at level 8), feasibility, demand rule (D37), coverable orders (D38), Deliver and drag-to-order delivery, swap once per 30 min, rewards and bonus acorns, XP and levels with the Sap refill on level-up (D33, D36), saves
+- ✅ Balance: `Tests/Balance/EnergySimulator.cs` reproduces every Python reference scenario exactly (the reference table is generated with `python3 tools/balance/energy_sim.py --csharp`); 0 stalls for order-driven players with real orders; strict players 1.05% (cap 2%); merge-skipped waits ≤ 4.6% of taps (cap 5%)
+- ✅ Property test: 3000 seeded order streams are feasible, never 3 in a row from one chain when another is available, and stay ≤ 55% per chain
+- ✅ Tests: 244 passing via `dotnet test tools/CoreTests`
+- ✅ Unity layer written: orders strip with cards (customer, items with ✓, rewards, Deliver, Swap), drag an item onto a card to deliver it, level / XP / Lifebloom in the top bar, rewards fly up from the strip, level-up message, debug +50 XP. Type-checked against Unity API stubs only. **Not yet run in Unity**
+- ⬜ Unity Editor validation (checklist below)
+
+**⚠ Editor validation checklist:**
+- [ ] Orders strip shows 3 cards under the top bar; the board still fits below it in Device Simulator
+- [ ] A card turns green with Deliver enabled when all its items are on the board; Deliver removes them, a reward line flies up, and a new order appears
+- [ ] Dragging a matching item onto a card delivers it (strikethrough); a non-matching item bounces back with a message
+- [ ] Swap replaces an order, then shows the 30-minute cooldown message
+- [ ] At the start, orders only ask for Nature items; after freeing the Moonwell Spring, new orders also ask for Water
+- [ ] Level, XP and Lifebloom update; Debug → +50 XP levels up, refills Sap and shows "Level up!"; at level 8 a 4th order appears
+- [ ] Stop and restart Play: orders (including delivered pieces), level, XP and Lifebloom are kept
 
 ## Phase 5: Story and world restoration ⬜
 

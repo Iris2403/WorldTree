@@ -29,5 +29,17 @@ namespace WorldTree.Core.Save
         public int? LimitsDay;
         public int SapRefillsToday;
         public int AdSapClaimsToday;
+
+        // Phase 4. Absent in older saves: level 1, no orders (new ones are generated on load).
+        public int Lifebloom;
+        public int Level = 1;
+        public int Xp;
+        public List<OrderData> Orders = new List<OrderData>();
+        public int NextOrderId = 1;
+        public int OrdersCompleted;
+        public long? LastOrderSwapUtcTicks;
+        public List<string> RecentOrderChains = new List<string>();
+        public List<string> DemandWindowChains = new List<string>();
+        public List<int> DemandWindowValues = new List<int>();
     }
 }

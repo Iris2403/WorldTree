@@ -296,7 +296,7 @@ This meets the §9 targets (Area 1 in 2–3 days, Area 5 in 6–8 weeks). Order 
 - **Story orders** are authored in `AreaDefinition` and always take precedence while their quest is active.
 - **Procedural orders** are drawn from chains the player has *unlocked and can currently generate*. The requested level targets the player's "comfort level" for that chain (based on the highest level they've reached), with occasional stretch requests.
 - **Feasibility guarantee:** an order must never request an item from a chain whose generator the player doesn't have.
-- **Demand rule (simplified in design review 4):** while the player has two generators, at most **55%** of the demand across the active orders plus the next queued ones (in level-1 equivalents) may come from one chain, and no more than **2 consecutive** procedural orders may come from the same chain. Both numbers are configurable (`OrderPoolDefinition.maxChainShare = 0.55`, `maxConsecutiveSameChain = 2`). Story orders count toward the share; procedural orders around them compensate. This keeps players who follow their orders from stalling (§4.4). A generalized capacity-based cap is deferred until a third generator exists.
+- **Demand rule (design review 4; implemented in Phase 4, roadmap D37–D38):** while the player has two or more generators, at most **55%** of order demand (in level-1 equivalents) may come from one chain, and no more than **2 consecutive** procedural orders may come from the same chain. Implementation: each new order is the candidate (one rolled per chain) that leaves the least demand over the last 20 orders including itself, with a re-roll guard against exceeding 55%; it also avoids orders the player's generators can't currently cover together with the other open orders on that chain. Measured: worst 60-order stream 54.1%, and 0 stalls for players who follow their orders. Both limits are configurable in `OrderRules`.
 - The reward value scales with the total "merge cost" of the requested items (level-1 equivalents), so rewards feel fair.
 
 ### 6.3 Quests
@@ -308,7 +308,7 @@ This meets the §9 targets (Area 1 in 2–3 days, Area 5 in 6–8 weeks). Order 
 
 ### 7.1 Player level
 
-- XP comes from orders, first discoveries and restoration tasks. Levelling up gives: a full Sap refill, Glimmer, and possibly new satchel slots, order slots or generator unlocks.
+- XP comes from orders, first discoveries and restoration tasks. **Numbers (roadmap D36):** XP to the next level = 15 × level; an order gives XP equal to its value in level-1 equivalents, a first discovery gives XP equal to the item's level; each level-up also pays 10 × level Glimmer and 2 Moonpetals. Levelling up gives: a full Sap refill, Glimmer, and possibly new satchel slots, order slots or generator unlocks.
 
 ### 7.2 Areas (launch scope: 5)
 
