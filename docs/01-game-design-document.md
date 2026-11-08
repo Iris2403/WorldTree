@@ -54,6 +54,7 @@
   - **Sealed:** always holds exactly one item, covered by thorny roots. The item is **hidden** and **locked**.
 - Withered and Sealed cells are never empty, never receive spawned items, and their items don't count toward orders or "board full" checks.
 - The starting board is authored per area (`BoardLayoutDefinition`): some Open cells, and rings of Withered and Sealed cells with pre-placed items.
+- **Prototype / Area 1 start (roadmap D31):** only the 3 × 3 centre is Open: the **Seed Pouch** in the middle and **8 free places** around it. The 16 cells around the centre are Withered (mostly Nature items the Seed Pouch can match), with the **Moonwell Spring** directly above the centre, so a merge beside it unlocks the second generator early. Everything else is Sealed and opens as the ring is cleared: the Woodwright's Stump at the top and a second Seed Pouch in a corner. The player expands the board by merging outward.
 
 ### 3.2 Interaction rules
 
@@ -165,7 +166,7 @@ Generators are board items that produce chain items when tapped.
 
 *L1-equivalents per tap* = the expected value of a tap, counting a level-*k* item as 2^(k−1) level-1 items. This is the generator's real Sap efficiency, and the main reason to upgrade. Capacity rises only modestly per level, because capacity is not meant to be the limiter (see below).
 
-**Combined-capacity rule (qualified in design review 3):** the generators a player is *guaranteed* to own at every point of progression must together hold at least **120 charges** = one full Sap bar (100) + in-session regeneration (≈ 4) + about 15% margin. The two starting generators hold 2 × 60 = 120. Permanent generators can't be sold, and new ones only add capacity, so the rule holds for the rest of the game once it holds at the start. The data validator checks it for each area's starting layout.
+**Combined-capacity rule (qualified in design review 3; roadmap D31):** the generators a player is *guaranteed* to own at every point of progression must together hold at least **120 charges** = one full Sap bar (100) + in-session regeneration (≈ 4) + about 15% margin. The two starting generators hold 2 × 60 = 120. Permanent generators can't be sold, and new ones only add capacity, so the rule holds for the rest of the game once it holds at the start. The data validator checks it for each area's starting layout, counting generators on Open cells plus **Withered generators next to an Open cell** (the first merge beside them frees them). The Area 1 start therefore satisfies it with the Seed Pouch plus the Moonwell Spring; until that first merge, the opening minutes are generator-limited by design.
 
 **What this rule does and doesn't guarantee:**
 - ✅ A full bar can be spent without a generator stall **if taps are spread across generators** in roughly the proportions orders ask for. Simulated: 0 stalls for balanced and order-driven players with orders under the §6.2 demand rule.

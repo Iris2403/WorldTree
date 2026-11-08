@@ -188,9 +188,9 @@ namespace WorldTree.Tests
         {
             var s = GameSession.NewGame(TestContent.Catalog, PrototypeContent.StartingLayout(), PrototypeContent.Energy, _clock, 1);
             Assert.IsTrue(s.Codex.IsDiscovered(PrototypeContent.SeedPouch1));
-            Assert.IsTrue(s.Codex.IsDiscovered("item.nature.01"));
+            Assert.AreEqual(1, s.Codex.Count, "only the Seed Pouch starts on an Open cell");
+            Assert.IsFalse(s.Codex.IsDiscovered(PrototypeContent.Moonwell1), "visible under blight but not yet freed");
             Assert.IsFalse(s.Codex.IsDiscovered(PrototypeContent.Stump1), "hidden under Sealed roots");
-            Assert.IsFalse(s.Codex.IsDiscovered("item.craft.02"), "visible under blight but not yet freed");
             Assert.AreEqual(0, s.Wallet.Glimmer);
         }
 

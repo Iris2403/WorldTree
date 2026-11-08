@@ -87,35 +87,39 @@ namespace WorldTree.Core.Content
         }
 
         /// <summary>
-        /// 7 × 9 starting board (Phase 2). Rows 3–8 are Open, with the Seed Pouch, the Moonwell Spring
-        /// and a second Seed Pouch for generator merging. Row 2 is Withered, rows 0–1 are Sealed, and
-        /// the Woodwright's Stump waits under the roots in the top row, so the Craft chain is earned by
-        /// cleansing the blight (GDD §3.3).
+        /// 7 × 9 starting board (roadmap D31). Only the 3 × 3 centre is Open: the Seed Pouch in the middle
+        /// and 8 free places around it. The ring around the centre is Withered, mostly Nature items the
+        /// Seed Pouch can match, plus the Moonwell Spring right next to the open area, so the first merge
+        /// beside it unlocks the second generator. Everything else is Sealed, revealed as the ring opens:
+        /// the Woodwright's Stump at the top and a second Seed Pouch in a corner.
         /// </summary>
         public static BoardLayout StartingLayout()
         {
-            var cells = new List<LayoutPlacement>
+            // One row per board row. "." = Open and empty, otherwise the item ID; the prefix sets the state:
+            // "o:" Open, "w:" Withered, "s:" Sealed.
+            string[][] rows =
             {
-                new LayoutPlacement(new GridPos(2, 5), SeedPouch1),
-                new LayoutPlacement(new GridPos(4, 5), Moonwell1),
-                new LayoutPlacement(new GridPos(3, 8), SeedPouch1),
-                new LayoutPlacement(new GridPos(1, 4), "item.nature.01"),
-                new LayoutPlacement(new GridPos(5, 4), "item.nature.01"),
-                new LayoutPlacement(new GridPos(1, 7), "item.water.01"),
-                new LayoutPlacement(new GridPos(5, 7), "item.water.01"),
+                new[] { "s:item.craft.01", "s:item.water.03", "s:item.nature.04", "s:" + Stump1, "s:item.water.02", "s:item.craft.02", "s:item.nature.03" },
+                new[] { "s:item.water.02", "s:item.nature.02", "s:item.craft.01", "s:item.nature.03", "s:item.craft.01", "s:item.water.03", "s:item.nature.01" },
+                new[] { "s:item.water.01", "w:item.nature.02", "w:item.nature.01", "w:" + Moonwell1, "w:item.nature.01", "w:item.nature.02", "s:item.nature.02" },
+                new[] { "s:item.nature.02", "w:item.nature.01", ".", ".", ".", "w:item.nature.01", "s:item.water.02" },
+                new[] { "s:item.water.04", "w:item.nature.03", ".", "o:" + SeedPouch1, ".", "w:item.water.01", "s:item.nature.04" },
+                new[] { "s:item.nature.01", "w:item.nature.01", ".", ".", ".", "w:item.nature.02", "s:item.water.03" },
+                new[] { "s:item.water.02", "w:item.water.02", "w:item.nature.01", "w:item.water.01", "w:item.nature.02", "w:item.water.01", "s:item.nature.01" },
+                new[] { "s:item.nature.03", "s:item.water.01", "s:item.craft.02", "s:item.nature.05", "s:item.water.02", "s:item.nature.02", "s:item.craft.03" },
+                new[] { "s:" + SeedPouch1, "s:item.nature.02", "s:item.water.03", "s:item.craft.01", "s:item.nature.04", "s:item.water.05", "s:item.water.01" },
             };
 
-            // Row 2: Withered, items visible. Same-ID items on the board can cleanse them directly.
-            string[] withered = { "item.nature.02", "item.water.01", "item.nature.01", "item.craft.02", "item.water.02", "item.nature.01", "item.water.01" };
-            for (int x = 0; x < BoardWidth; x++) cells.Add(new LayoutPlacement(new GridPos(x, 2), withered[x], CellState.Withered));
-
-            // Rows 0–1: Sealed, items hidden until revealed.
-            string[] row1 = { "item.craft.01", "item.nature.03", "item.water.02", "item.craft.01", "item.nature.02", "item.water.03", "item.craft.02" };
-            string[] row0 = { "item.water.04", "item.craft.03", "item.nature.04", Stump1, "item.water.03", "item.craft.01", "item.nature.05" };
-            for (int x = 0; x < BoardWidth; x++)
+            var cells = new List<LayoutPlacement>();
+            for (int y = 0; y < rows.Length; y++)
             {
-                cells.Add(new LayoutPlacement(new GridPos(x, 1), row1[x], CellState.Sealed));
-                cells.Add(new LayoutPlacement(new GridPos(x, 0), row0[x], CellState.Sealed));
+                for (int x = 0; x < rows[y].Length; x++)
+                {
+                    string code = rows[y][x];
+                    if (code == ".") continue;
+                    var state = code[0] == 'w' ? CellState.Withered : code[0] == 's' ? CellState.Sealed : CellState.Open;
+                    cells.Add(new LayoutPlacement(new GridPos(x, y), code.Substring(2), state));
+                }
             }
             return new BoardLayout(BoardWidth, BoardHeight, cells);
         }

@@ -29,9 +29,8 @@ namespace WorldTree.Tests
         {
             var clock = FakeClock.AtNoon();
             var s = GameSession.NewGame(TestContent.Catalog, PrototypeContent.StartingLayout(), PrototypeContent.Energy, clock, 2024);
-            var seedPouch = P(2, 5);
-            for (int i = 0; i < 12; i++) Assert.AreEqual(TapResult.Spawned, s.TapCell(seedPouch).Result);
-            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(1, 4), P(5, 4)).Kind);
+            var seedPouch = P(3, 4);
+            for (int i = 0; i < 6; i++) Assert.AreEqual(TapResult.Spawned, s.TapCell(seedPouch).Result);
             clock.AdvanceMinutes(3);
 
             var restored = Reload(s, clock);
@@ -97,21 +96,26 @@ namespace WorldTree.Tests
         {
             var clock = FakeClock.AtNoon();
             var s = GameSession.NewGame(TestContent.Catalog, PrototypeContent.StartingLayout(), PrototypeContent.Energy, clock, 99);
-            // Merge the two Nature L1 items into a Nature L2, then drop it onto the Withered Nature L2 at (0,2):
-            // (0,2) is freed and the Sealed (0,1) above it turns Withered.
-            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(1, 4), P(5, 4)).Kind);
-            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(5, 4), P(0, 2)).Kind);
-            Assert.AreEqual(CellState.Open, s.Board.GetState(P(0, 2)));
-            Assert.AreEqual(CellState.Withered, s.Board.GetState(P(0, 1)));
-            Assert.AreEqual(StoreResult.Stored, s.StoreInSatchel(P(4, 5)));
-            Assert.AreEqual(SellResult.Sold, s.SellItem(P(1, 7)));
+            // Merge beside the Withered Moonwell Spring at (3,2): it's a generator, so it is freed.
+            Put(s, 2, 3, "item.nature.01");
+            Put(s, 3, 3, "item.nature.01");
+            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(2, 3), P(3, 3)).Kind);
+            Assert.AreEqual(CellState.Open, s.Board.GetState(P(3, 2)));
+            // Drop a matching item onto the Withered Nature L1 at (2,2): it is freed and (2,1) above is revealed.
+            Put(s, 2, 5, "item.nature.01");
+            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(2, 5), P(2, 2)).Kind);
+            Assert.AreEqual(CellState.Open, s.Board.GetState(P(2, 2)));
+            Assert.AreEqual(CellState.Withered, s.Board.GetState(P(2, 1)));
+            Assert.AreEqual(StoreResult.Stored, s.StoreInSatchel(P(3, 2)));
+            Put(s, 4, 5, "item.water.01");
+            Assert.AreEqual(SellResult.Sold, s.SellItem(P(4, 5)));
 
             var restored = Reload(s, clock);
             Assert.AreEqual(Snapshot(s), Snapshot(restored));
             Assert.AreEqual(s.Wallet.Glimmer, restored.Wallet.Glimmer);
             Assert.AreEqual(PrototypeContent.Moonwell1, restored.Satchel.Items[0].ItemId);
-            Assert.IsTrue(restored.Codex.IsDiscovered("item.nature.03"));
-            Assert.AreEqual(CellState.Withered, restored.Board.GetState(P(0, 1)));
+            Assert.IsTrue(restored.Codex.IsDiscovered("item.nature.02"));
+            Assert.AreEqual(CellState.Withered, restored.Board.GetState(P(2, 1)));
         }
 
         [Test]
