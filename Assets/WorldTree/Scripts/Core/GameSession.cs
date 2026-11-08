@@ -11,6 +11,7 @@ using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 using WorldTree.Core.Orders;
 using WorldTree.Core.Progression;
+using WorldTree.Core.Settings;
 using WorldTree.Core.Story;
 
 namespace WorldTree.Core
@@ -37,8 +38,10 @@ namespace WorldTree.Core
 
         public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, Wallet wallet, Codex codex, Satchel satchel,
             uint randomState, IClock clock, DailyGift dailyGift = null, DailyLimits dailyLimits = null,
-            PlayerProgress progress = null, OrderBoard orders = null, StoryCatalog story = null, QuestState quest = null)
+            PlayerProgress progress = null, OrderBoard orders = null, StoryCatalog story = null, QuestState quest = null,
+            GameSettings settings = null)
         {
+            Settings = settings ?? new GameSettings();
             Story = story;
             Quest = quest ?? new QuestState(0);
             Progress = progress ?? new PlayerProgress(1, 0);
@@ -140,6 +143,26 @@ namespace WorldTree.Core
 
         /// <summary>Areas and dialogue (GDD §7.2, §8), or null when the session has no story content.</summary>
         public StoryCatalog Story { get; }
+
+        /// <summary>Audio, haptics and accessibility options (GDD §10).</summary>
+        public GameSettings Settings { get; }
+
+        /// <summary>Raised when a setting changed: (which, new value).</summary>
+        public event Action<SettingKind, bool> SettingChanged;
+
+        public void SetSetting(SettingKind kind, bool value)
+        {
+            switch (kind)
+            {
+                case SettingKind.Music: Settings.Music = value; break;
+                case SettingKind.Sound: Settings.Sound = value; break;
+                case SettingKind.Haptics: Settings.Haptics = value; break;
+                case SettingKind.ReducedMotion: Settings.ReducedMotion = value; break;
+                case SettingKind.LargeText: Settings.LargeText = value; break;
+            }
+            Changed();
+            SettingChanged?.Invoke(kind, value);
+        }
         public QuestState Quest { get; }
 
         /// <summary>The area being restored, or null when all are restored (or there is no story).</summary>
