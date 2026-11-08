@@ -28,6 +28,10 @@ namespace WorldTree.Game
 
         private RectTransform _safeArea;
         private TextMeshProUGUI _sap;
+        private TextMeshProUGUI _level;
+        private RectTransform _ordersStrip;
+        private OrderCard[] _cards;
+        private readonly System.Collections.Generic.List<FlyingLabel> _flying = new System.Collections.Generic.List<FlyingLabel>();
         private TextMeshProUGUI _glimmer;
         private TextMeshProUGUI _selection;
         private TextMeshProUGUI _message;
@@ -81,11 +85,23 @@ namespace WorldTree.Game
             hud._safeArea = NewRect("SafeArea", root.transform, Vector2.zero, Vector2.one);
 
             // Top bar
-            var bar = NewRect("TopBar", hud._safeArea, new Vector2(0f, 1f - BoardCameraFitter.TopReserved), Vector2.one);
+            var bar = NewRect("TopBar", hud._safeArea, new Vector2(0f, 1f - BoardCameraFitter.TopBarShare), Vector2.one);
             AddImage(bar, PanelColor, false);
-            hud._sap = NewText("Sap", bar, new Vector2(0.03f, 0.5f), new Vector2(0.62f, 0.95f), 50, TextAlignmentOptions.Left);
-            hud._glimmer = NewText("Glimmer", bar, new Vector2(0.62f, 0.5f), new Vector2(0.97f, 0.95f), 50, TextAlignmentOptions.Right);
-            hud._selection = NewText("Selection", bar, new Vector2(0.03f, 0.05f), new Vector2(0.97f, 0.5f), 38, TextAlignmentOptions.Left);
+            hud._sap = NewText("Sap", bar, new Vector2(0.03f, 0.66f), new Vector2(0.62f, 0.97f), 44, TextAlignmentOptions.Left);
+            hud._level = NewText("Level", bar, new Vector2(0.55f, 0.66f), new Vector2(0.97f, 0.97f), 40, TextAlignmentOptions.Right);
+            hud._glimmer = NewText("Currencies", bar, new Vector2(0.03f, 0.36f), new Vector2(0.97f, 0.66f), 36, TextAlignmentOptions.Left);
+            hud._selection = NewText("Selection", bar, new Vector2(0.03f, 0.03f), new Vector2(0.97f, 0.36f), 34, TextAlignmentOptions.Left);
+
+            // Orders strip (GDD §6.1): up to 4 cards side by side under the top bar.
+            hud._ordersStrip = NewRect("Orders", hud._safeArea,
+                new Vector2(0f, 1f - BoardCameraFitter.TopReserved), new Vector2(1f, 1f - BoardCameraFitter.TopBarShare));
+            var orderRow = hud._ordersStrip.gameObject.AddComponent<HorizontalLayoutGroup>();
+            orderRow.padding = new RectOffset(10, 10, 8, 8);
+            orderRow.spacing = 10;
+            orderRow.childControlWidth = orderRow.childControlHeight = true;
+            orderRow.childForceExpandWidth = orderRow.childForceExpandHeight = true;
+            hud._cards = new OrderCard[Core.Orders.OrderRules.BaseSlots + 1];
+            for (int i = 0; i < hud._cards.Length; i++) hud._cards[i] = OrderCard.Create(hud._ordersStrip, hud);
 
             // Bottom bar
             hud._bottomBar = NewRect("BottomBar", hud._safeArea, Vector2.zero, new Vector2(1f, BoardCameraFitter.BottomReserved * 0.82f));
@@ -167,11 +183,18 @@ namespace WorldTree.Game
 
         public void SetSession(GameSession session, GameDatabase database, BoardView board)
         {
-            if (_session != null) _session.ItemDiscovered -= OnDiscovered;
+            if (_session != null)
+            {
+                _session.ItemDiscovered -= OnDiscovered;
+                _session.OrderCompleted -= OnOrderCompleted;
+                _session.LeveledUp -= OnLeveledUp;
+            }
             _session = session;
             _database = database;
             _board = board;
             _session.ItemDiscovered += OnDiscovered;
+            _session.OrderCompleted += OnOrderCompleted;
+            _session.LeveledUp += OnLeveledUp;
             Select(null);
             CloseAllPanels();
         }
@@ -191,7 +214,122 @@ namespace WorldTree.Game
 
         /// <summary>True if the screen point is over HUD controls, so the board must not react to it.</summary>
         public bool IsOverUi(Vector2 screen) =>
-            IsPanelOpen || Contains(_bottomBar, screen);
+            IsPanelOpen || Contains(_bottomBar, screen) || Contains(_ordersStrip, screen);
+
+        /// <summary>The order whose card is under the screen point (drop target for delivering one item), or null.</summary>
+        public int? OrderAt(Vector2 screen)
+        {
+            foreach (var card in _cards)
+                if (card.OrderId.HasValue && Contains(card.Rect, screen)) return card.OrderId;
+            return null;
+        }
+
+        /// <summary>Delivers one dragged item to an order card (GDD §6.1).</summary>
+        public void ContributeFromBoard(GridPos cell, int orderId)
+        {
+            switch (_session.ContributeToOrder(cell, orderId))
+            {
+                case DeliverResult.NotNeeded: ShowMessage("This order doesn't need that item"); break;
+                case DeliverResult.Accepted: ShowMessage("Delivered! The order needs a bit more"); break;
+            }
+            Select(null);
+            _nextRefresh = 0f;
+        }
+
+        internal void OnDeliverPressed(int orderId)
+        {
+            if (_session.DeliverOrder(orderId) == DeliverResult.MissingItems) ShowMessage("Some requested items aren't on the board yet");
+            _nextRefresh = 0f;
+        }
+
+        internal void OnSwapPressed(int orderId)
+        {
+            switch (_session.SwapOrder(orderId))
+            {
+                case SwapOrderResult.OnCooldown: ShowMessage("You can swap again in " + FormatTime(_session.OrderSwapCooldownLeft)); break;
+                case SwapOrderResult.HasProgress: ShowMessage("Items were already delivered to this order"); break;
+            }
+            _nextRefresh = 0f;
+        }
+
+        private void RefreshOrders()
+        {
+            var active = _session.Orders.Active;
+            for (int i = 0; i < _cards.Length; i++)
+            {
+                if (i >= active.Count)
+                {
+                    _cards[i].Hide();
+                    continue;
+                }
+                var order = active[i];
+                var sb = new StringBuilder();
+                sb.Append("<b>").Append(CustomerName(order.CustomerId)).Append("</b>\n");
+                foreach (var r in order.Requirements)
+                {
+                    bool ready = r.Fulfilled || _session.IsOnBoard(r.ItemId);
+                    sb.Append(r.Fulfilled ? "<s>" : "").Append(DisplayName(r.ItemId)).Append(r.Fulfilled ? "</s>" : "")
+                      .Append(ready ? " ✓" : "").Append('\n');
+                }
+                sb.Append("<size=80%>+").Append(order.Glimmer).Append(" Gl  +").Append(order.Lifebloom).Append(" Lb  +").Append(order.Xp).Append(" XP");
+                if (order.BonusItemId != null) sb.Append("  +").Append(DisplayName(order.BonusItemId));
+                sb.Append("</size>");
+                bool canSwap = !order.HasProgress && _session.OrderSwapCooldownLeft <= TimeSpan.Zero;
+                _cards[i].Show(order.Id, sb.ToString(), _session.CanDeliver(order.Id), canSwap);
+            }
+        }
+
+        private static string CustomerName(string id)
+        {
+            switch (id)
+            {
+                case "wren": return "Wren";
+                case "thalen": return "Elder Thalen";
+                case "pip": return "Pip";
+                case "marra": return "Marra";
+                case "sorrel_fen": return "Sorrel & Fen";
+                default: return id;
+            }
+        }
+
+        private void OnOrderCompleted(Core.Orders.Order order)
+        {
+            // Reward fly-to-HUD: the reward line rises from the strip to the currency row and fades.
+            var label = NewText("Reward", _safeArea, new Vector2(0.15f, 1f - BoardCameraFitter.TopReserved),
+                new Vector2(0.85f, 1f - BoardCameraFitter.TopBarShare * 0.6f), 40, TextAlignmentOptions.Center);
+            label.text = "+" + order.Glimmer + " Glimmer  +" + order.Lifebloom + " Lifebloom  +" + order.Xp + " XP";
+            label.color = new Color(1f, 0.9f, 0.45f);
+            _flying.Add(new FlyingLabel { Text = label, Start = Time.unscaledTime });
+            ShowMessage(CustomerName(order.CustomerId) + "'s order complete!");
+        }
+
+        private void OnLeveledUp(int level) => ShowMessage("Level up! Lv " + level + ": Sap refilled", 3.5f);
+
+        private void AnimateFlyingLabels()
+        {
+            for (int i = _flying.Count - 1; i >= 0; i--)
+            {
+                var f = _flying[i];
+                float t = (Time.unscaledTime - f.Start) / 1.2f;
+                if (t >= 1f || f.Text == null)
+                {
+                    if (f.Text != null) Destroy(f.Text.gameObject);
+                    _flying.RemoveAt(i);
+                    continue;
+                }
+                var rt = f.Text.rectTransform;
+                rt.anchoredPosition = new Vector2(0f, 160f * (1f - (1f - t) * (1f - t)));
+                var c = f.Text.color;
+                c.a = 1f - t * t;
+                f.Text.color = c;
+            }
+        }
+
+        private sealed class FlyingLabel
+        {
+            public TextMeshProUGUI Text;
+            public float Start;
+        }
 
         /// <summary>True if the screen point is over the Satchel button (drop target for storing items).</summary>
         public bool IsOverSatchelButton(Vector2 screen) => Contains((RectTransform)_satchelButton.transform, screen);
@@ -206,6 +344,7 @@ namespace WorldTree.Game
         private void Update()
         {
             ApplySafeArea();
+            AnimateFlyingLabels();
             if (_message.text.Length > 0 && Time.unscaledTime > _messageUntil) _message.text = string.Empty;
             if (_session == null || Time.unscaledTime < _nextRefresh) return;
             _nextRefresh = Time.unscaledTime + RefreshInterval;
@@ -214,7 +353,10 @@ namespace WorldTree.Game
             int sap = _session.Sap;
             var next = _session.Energy.NextTickUtc;
             _sap.text = "Sap " + sap + " / " + _session.Energy.Config.Cap + (next.HasValue ? "   +1 in " + FormatTime(next.Value - now) : "   Full");
-            _glimmer.text = "Glimmer " + _session.Wallet.Glimmer + "   Moonpetals " + _session.Wallet.Moonpetals;
+            _glimmer.text = "Glimmer " + _session.Wallet.Glimmer + "   Moonpetals " + _session.Wallet.Moonpetals +
+                            "   Lifebloom " + _session.Wallet.Lifebloom;
+            _level.text = "Lv " + _session.Progress.Level + "  ·  " + _session.Progress.Xp + "/" + _session.Progress.XpToNextLevel + " XP";
+            RefreshOrders();
             _selection.text = DescribeSelection(now);
             RefreshButtons();
             if (_satchelPanel.gameObject.activeSelf) RefreshSatchel(now);
@@ -518,7 +660,7 @@ namespace WorldTree.Game
         private static bool Contains(RectTransform rect, Vector2 screen) =>
             rect != null && rect.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(rect, screen, null);
 
-        private static RectTransform NewRect(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax)
+        internal static RectTransform NewRect(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
@@ -527,7 +669,7 @@ namespace WorldTree.Game
             return rt;
         }
 
-        private static void SetAnchors(RectTransform rt, Vector2 anchorMin, Vector2 anchorMax)
+        internal static void SetAnchors(RectTransform rt, Vector2 anchorMin, Vector2 anchorMax)
         {
             rt.anchorMin = anchorMin;
             rt.anchorMax = anchorMax;
@@ -535,7 +677,7 @@ namespace WorldTree.Game
             rt.offsetMax = Vector2.zero;
         }
 
-        private static Image AddImage(RectTransform rt, Color color, bool raycast)
+        internal static Image AddImage(RectTransform rt, Color color, bool raycast)
         {
             var image = rt.gameObject.AddComponent<Image>();
             image.color = color;
@@ -543,7 +685,7 @@ namespace WorldTree.Game
             return image;
         }
 
-        private static TextMeshProUGUI NewText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, float size, TextAlignmentOptions align)
+        internal static TextMeshProUGUI NewText(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, float size, TextAlignmentOptions align)
         {
             var rt = NewRect(name, parent, anchorMin, anchorMax);
             var text = rt.gameObject.AddComponent<TextMeshProUGUI>();
@@ -554,7 +696,7 @@ namespace WorldTree.Game
             return text;
         }
 
-        private static Button NewButton(string name, Transform parent, string label, UnityEngine.Events.UnityAction onClick)
+        internal static Button NewButton(string name, Transform parent, string label, UnityEngine.Events.UnityAction onClick)
         {
             var rt = NewRect(name, parent, Vector2.zero, Vector2.one);
             var image = AddImage(rt, ButtonColor, true);

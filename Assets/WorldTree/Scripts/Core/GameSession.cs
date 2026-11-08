@@ -536,6 +536,13 @@ namespace WorldTree.Core
             return ClaimResult.Claimed;
         }
 
+        public void DebugAddXp(int amount)
+        {
+            AddXp(amount);
+            Changed();
+            RefillOrders(); // a 4th slot may have unlocked
+        }
+
         public void DebugAddMoonpetals(int amount)
         {
             Wallet.AddMoonpetals(amount);

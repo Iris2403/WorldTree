@@ -124,6 +124,15 @@ namespace WorldTree.Game
             if (_dragging)
             {
                 _dragging = false;
+                var orderId = _hud.OrderAt(screen);
+                if (orderId.HasValue)
+                {
+                    _board.SnapBack(_origin);
+                    _board.EndDrag(_dragView);
+                    _dragView = null;
+                    _hud.ContributeFromBoard(_origin, orderId.Value);
+                    return;
+                }
                 if (_hud.IsOverSatchelButton(screen))
                 {
                     _board.SnapBack(_origin);

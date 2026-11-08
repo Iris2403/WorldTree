@@ -34,7 +34,7 @@ namespace WorldTree.Game
                 return;
             }
 
-            GUILayout.BeginArea(new Rect(width - 250, height - 440, 244, 434), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(width - 250, height - 470, 244, 464), GUI.skin.box);
             var stats = _session.Stats;
             var now = _session.UtcNow;
             double minutes = (now - stats.StartedUtc).TotalMinutes;
@@ -48,6 +48,7 @@ namespace WorldTree.Game
             if (GUILayout.Button("+10 Sap")) _session.DebugAddSap(10);
             if (GUILayout.Button("Refresh all generators now")) _session.DebugRefreshAllGenerators();
             if (GUILayout.Button("+20 Moonpetals")) _session.DebugAddMoonpetals(20);
+            if (GUILayout.Button("+50 XP")) _session.DebugAddXp(50);
             if (GUILayout.Button("Allow Daily Gift again")) _session.DebugAllowDailyGiftAgain();
             bool fake = _bootstrapper.FakeAdsEnabled;
             if (GUILayout.Button(fake ? "Fake ads: ON (tap to turn off)" : "Fake ads: OFF (tap to turn on)")) _bootstrapper.FakeAdsEnabled = !fake;
