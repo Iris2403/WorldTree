@@ -11,6 +11,7 @@ using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 using WorldTree.Core.Orders;
 using WorldTree.Core.Progression;
+using WorldTree.Core.Story;
 
 namespace WorldTree.Core
 {
@@ -36,8 +37,10 @@ namespace WorldTree.Core
 
         public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, Wallet wallet, Codex codex, Satchel satchel,
             uint randomState, IClock clock, DailyGift dailyGift = null, DailyLimits dailyLimits = null,
-            PlayerProgress progress = null, OrderBoard orders = null)
+            PlayerProgress progress = null, OrderBoard orders = null, StoryCatalog story = null, QuestState quest = null)
         {
+            Story = story;
+            Quest = quest ?? new QuestState(0);
             Progress = progress ?? new PlayerProgress(1, 0);
             Orders = orders ?? new OrderBoard(1, 0, null);
             DailyGift = dailyGift ?? new DailyGift(0, null);
@@ -109,6 +112,15 @@ namespace WorldTree.Core
         /// <summary>Raised when an order was completed: (order). Rewards are already granted.</summary>
         public event Action<Order> OrderCompleted;
 
+        /// <summary>Raised after a restoration task was completed: (area, task).</summary>
+        public event Action<AreaDef, RestorationTask> TaskRestored;
+
+        /// <summary>Raised after an area's last task: (the restored area). The next area is now current.</summary>
+        public event Action<AreaDef> AreaRestored;
+
+        /// <summary>Raised when a dialogue scene was queued: (scene ID).</summary>
+        public event Action<string> DialogueQueued;
+
         /// <summary>Raised on each level-up: (new level).</summary>
         public event Action<int> LeveledUp;
 
@@ -125,6 +137,37 @@ namespace WorldTree.Core
         public DailyLimits DailyLimits { get; }
         public PlayerProgress Progress { get; }
         public OrderBoard Orders { get; }
+
+        /// <summary>Areas and dialogue (GDD §7.2, §8), or null when the session has no story content.</summary>
+        public StoryCatalog Story { get; }
+        public QuestState Quest { get; }
+
+        /// <summary>The area being restored, or null when all are restored (or there is no story).</summary>
+        public AreaDef CurrentArea => Story != null && Quest.AreaIndex < Story.Areas.Count ? Story.Areas[Quest.AreaIndex] : null;
+
+        /// <summary>The next restoration task of the current area (tasks are done in order), or null.</summary>
+        public RestorationTask NextTask
+        {
+            get
+            {
+                var area = CurrentArea;
+                if (area == null) return null;
+                foreach (var task in area.Tasks) if (!Quest.IsTaskCompleted(task.Id)) return task;
+                return null;
+            }
+        }
+
+        /// <summary>The oldest dialogue scene waiting to be shown, or null.</summary>
+        public DialogueScene PendingDialogue
+        {
+            get
+            {
+                if (Story == null) return null;
+                foreach (var id in Quest.PendingDialogues)
+                    if (Story.TryGetScene(id, out var scene)) return scene;
+                return null;
+            }
+        }
         public SessionStats Stats { get; }
         public long StateVersion { get; private set; }
         public uint RandomState => _random.State;
@@ -204,7 +247,9 @@ namespace WorldTree.Core
             return false;
         }
 
-        public static GameSession NewGame(ICatalog catalog, BoardLayout layout, EnergyConfig energy, IClock clock, uint seed)
+        /// <summary>Starts a new game on an authored board. With a story, the first area's intro scene is queued.</summary>
+        public static GameSession NewGame(ICatalog catalog, BoardLayout layout, EnergyConfig energy, IClock clock, uint seed,
+            StoryCatalog story = null)
         {
             if (layout == null) throw new ArgumentNullException(nameof(layout));
             var board = new BoardModel(layout.Width, layout.Height);
@@ -214,7 +259,10 @@ namespace WorldTree.Core
                 board.SetItem(placement.Pos, new ItemInstance(def.Id, def.IsGenerator ? GeneratorRules.CreateFull(def.Generator) : null));
                 board.SetState(placement.Pos, placement.State);
             }
-            return new GameSession(catalog, board, EnergyModel.Full(energy), seed, clock);
+            var session = new GameSession(catalog, board, EnergyModel.Full(energy), new Wallet(0), new Codex(),
+                new Satchel(EconomyRules.StartingSatchelSlots), seed, clock, story: story);
+            if (session.CurrentArea != null) session.QueueDialogue(session.CurrentArea.IntroDialogueId);
+            return session;
         }
 
         /// <summary>Drags the item at <paramref name="from"/> onto <paramref name="to"/> (GDD §3.2, §3.3, §4.3).</summary>
@@ -445,6 +493,49 @@ namespace WorldTree.Core
             RefillOrders();
             OrdersChanged?.Invoke();
             return SwapOrderResult.Swapped;
+        }
+
+        /// <summary>
+        /// Completes the current area's next restoration task for its Lifebloom cost (GDD §6.3, §7.2).
+        /// After the last task the area is restored: rewards are granted, its Memory Leaf is set, and the
+        /// next area opens with its intro scene.
+        /// </summary>
+        public RestoreResult RestoreNextTask()
+        {
+            var area = CurrentArea;
+            var task = NextTask;
+            if (area == null || task == null) return RestoreResult.NothingToRestore;
+            if (!Wallet.TrySpendLifebloom(task.LifebloomCost)) return RestoreResult.NotEnoughLifebloom;
+
+            Quest.CompleteTask(task.Id);
+            Changed();
+            WalletChanged?.Invoke();
+            TaskRestored?.Invoke(area, task);
+            QueueDialogue(task.DialogueId);
+            if (NextTask != null) return RestoreResult.Restored;
+
+            Quest.SetFlag("area." + area.Id + ".restored");
+            if (area.MemoryLeafId != null) Quest.SetFlag(area.MemoryLeafId);
+            foreach (var item in area.RewardItemIds) Grant(Reward.Item(item));
+            QueueDialogue(area.CompletionDialogueId);
+            Quest.AreaIndex++;
+            AreaRestored?.Invoke(area);
+            if (CurrentArea != null) QueueDialogue(CurrentArea.IntroDialogueId);
+            return RestoreResult.AreaRestored;
+        }
+
+        /// <summary>Marks a dialogue scene as shown (watched or skipped).</summary>
+        public void DismissDialogue(string sceneId)
+        {
+            if (Quest.DismissDialogue(sceneId)) Changed();
+        }
+
+        private void QueueDialogue(string sceneId)
+        {
+            if (sceneId == null || Story == null || !Story.TryGetScene(sceneId, out _)) return;
+            Quest.QueueDialogue(sceneId);
+            Changed();
+            DialogueQueued?.Invoke(sceneId);
         }
 
         /// <summary>Moonpetal cost to finish the running refresh of the generator at <paramref name="pos"/> now, or 0.</summary>
@@ -800,7 +891,10 @@ namespace WorldTree.Core
                     }
                     else
                     {
-                        Satchel.Add(item);
+                        // Callers that can fail (Daily Gift) check for room first; story rewards must never be
+                        // lost, so they may exceed the satchel's capacity.
+                        if (Satchel.IsFull) Satchel.Restore(item);
+                        else Satchel.Add(item);
                         SatchelChanged?.Invoke();
                     }
                     DiscoverWithReward(item.ItemId);

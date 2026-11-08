@@ -40,7 +40,7 @@ namespace WorldTree.Tests.Balance
 
         public struct Totals
         {
-            public int Spent, Regenerated, Stalls, Stranded, Orders;
+            public int Spent, Regenerated, Stalls, Stranded, Orders, Lifebloom;
         }
 
         /// <summary>Supplies the next order as (generator index, taps).</summary>
@@ -49,6 +49,9 @@ namespace WorldTree.Tests.Balance
             /// <param name="charges">Current charges per generator.</param>
             /// <param name="openTaps">Taps still needed by the active orders, per generator.</param>
             (int Gen, int Taps) Next(int[] charges, int[] openTaps);
+
+            /// <summary>Lifebloom paid by the order most recently returned by <see cref="Next"/> (0 if not tracked).</summary>
+            int LastLifebloom { get; }
         }
 
         public sealed class PatternSource : IOrderSource
@@ -57,6 +60,7 @@ namespace WorldTree.Tests.Balance
             private int _next;
             public PatternSource(string name) => _pattern = Patterns[name];
             public (int Gen, int Taps) Next(int[] charges, int[] openTaps) => _pattern[_next++ % _pattern.Length];
+            public int LastLifebloom => 0;
         }
 
         public static Totals Run(int[] schedule, IOrderSource orders, string strategy, int[] capacities, int secondsPerSap)
@@ -71,7 +75,7 @@ namespace WorldTree.Tests.Balance
                 defs[i] = new GeneratorDef(capacities[i], TimeSpan.FromMinutes(20), 1, drops);
                 gens[i] = GeneratorRules.CreateFull(defs[i]);
             }
-            var active = new List<int[]>(); // [generator, remaining taps]
+            var active = new List<int[]>(); // [generator, remaining taps, Lifebloom]
             while (active.Count < ActiveOrders) Draw(active, orders, gens);
 
             var sorted = (int[])schedule.Clone();
@@ -98,7 +102,7 @@ namespace WorldTree.Tests.Balance
                         }
                         energy.TrySpend(1, now);
                         GeneratorRules.ConsumeCharge(gens[pick], defs[pick], now);
-                        ApplyTap(active, orders, gens, pick, ref totals.Orders);
+                        ApplyTap(active, orders, gens, pick, ref totals);
                         totals.Spent++;
                         t += secondsPerSap;
                     }
@@ -116,10 +120,10 @@ namespace WorldTree.Tests.Balance
             for (int i = 0; i < gens.Length; i++) charges[i] = gens[i].Charges;
             foreach (var o in active) open[o[0]] += o[1];
             var (gen, taps) = orders.Next(charges, open);
-            active.Add(new[] { gen, taps });
+            active.Add(new[] { gen, taps, orders.LastLifebloom });
         }
 
-        private static void ApplyTap(List<int[]> active, IOrderSource orders, GeneratorState[] gens, int gen, ref int completed)
+        private static void ApplyTap(List<int[]> active, IOrderSource orders, GeneratorState[] gens, int gen, ref Totals totals)
         {
             foreach (var order in active)
             {
@@ -128,7 +132,8 @@ namespace WorldTree.Tests.Balance
                 if (order[1] == 0)
                 {
                     active.Remove(order);
-                    completed++;
+                    totals.Orders++;
+                    totals.Lifebloom += order[2];
                     Draw(active, orders, gens);
                 }
                 return;
