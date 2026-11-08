@@ -51,6 +51,14 @@ namespace WorldTree.Game
         private Button _refillButton;
         private Button _adSapButton;
         private WorldPanel _world;
+        private RectTransform _topBar;
+        private RectTransform _banner;
+        private TextMeshProUGUI _bannerText;
+        private RectTransform _settingsPanel;
+        private Button[] _settingButtons;
+
+        /// <summary>Raised by every HUD button (used for the click sound).</summary>
+        public static event Action ButtonClicked;
         private DialogueView _dialogue;
         private RectTransform _satchelPanel;
         private Button[] _slotButtons;
@@ -69,7 +77,7 @@ namespace WorldTree.Game
         public bool IsPanelOpen =>
             _satchelPanel.gameObject.activeSelf || _codexPanel.gameObject.activeSelf ||
             _giftPanel.gameObject.activeSelf || _energyPanel.gameObject.activeSelf ||
-            _world.IsOpen || _dialogue.IsOpen;
+            _world.IsOpen || _dialogue.IsOpen || _settingsPanel.gameObject.activeSelf;
 
         public static HudView Create(Transform parent)
         {
@@ -89,9 +97,19 @@ namespace WorldTree.Game
 
             // Top bar
             var bar = NewRect("TopBar", hud._safeArea, new Vector2(0f, 1f - BoardCameraFitter.TopBarShare), Vector2.one);
+            hud._topBar = bar;
             AddImage(bar, PanelColor, false);
             hud._sap = NewText("Sap", bar, new Vector2(0.03f, 0.66f), new Vector2(0.62f, 0.97f), 44, TextAlignmentOptions.Left);
-            hud._level = NewText("Level", bar, new Vector2(0.55f, 0.66f), new Vector2(0.97f, 0.97f), 40, TextAlignmentOptions.Right);
+            hud._level = NewText("Level", bar, new Vector2(0.45f, 0.66f), new Vector2(0.8f, 0.97f), 40, TextAlignmentOptions.Right);
+            var settings = NewButton("Settings", bar, "Settings", hud.ToggleSettings);
+            SetAnchors((RectTransform)settings.transform, new Vector2(0.82f, 0.64f), new Vector2(0.985f, 0.96f));
+            settings.GetComponentInChildren<TextMeshProUGUI>().fontSize = 28;
+
+            // Scene banner (06-mobile-layout.md §2): area name and progress, only where there is room.
+            hud._banner = NewRect("Banner", hud._safeArea, new Vector2(0f, 0.8f), new Vector2(1f, 0.85f));
+            AddImage(hud._banner, new Color(0.12f, 0.16f, 0.13f, 0.9f), false);
+            hud._bannerText = NewText("Area", hud._banner, new Vector2(0.04f, 0f), new Vector2(0.96f, 1f), 40, TextAlignmentOptions.Center);
+            hud._banner.gameObject.SetActive(false);
             hud._glimmer = NewText("Currencies", bar, new Vector2(0.03f, 0.36f), new Vector2(0.97f, 0.66f), 36, TextAlignmentOptions.Left);
             hud._selection = NewText("Selection", bar, new Vector2(0.03f, 0.03f), new Vector2(0.97f, 0.36f), 34, TextAlignmentOptions.Left);
 
@@ -183,6 +201,23 @@ namespace WorldTree.Game
             SetAnchors((RectTransform)hud._adSapButton.transform, new Vector2(0.52f, 0.08f), new Vector2(0.95f, 0.42f));
             hud._energyPanel.gameObject.SetActive(false);
 
+            // Settings panel (GDD §10 accessibility).
+            hud._settingsPanel = NewRect("SettingsPanel", hud._safeArea, new Vector2(0.1f, 0.3f), new Vector2(0.9f, 0.75f));
+            AddImage(hud._settingsPanel, PanelColor, true);
+            NewText("Title", hud._settingsPanel, new Vector2(0.06f, 0.86f), new Vector2(0.7f, 0.98f), 44, TextAlignmentOptions.Left).text = "<b>Settings</b>";
+            var settingsClose = NewButton("Close", hud._settingsPanel, "Close", hud.ToggleSettings);
+            SetAnchors((RectTransform)settingsClose.transform, new Vector2(0.72f, 0.87f), new Vector2(0.96f, 0.98f));
+            var kinds = (Core.Settings.SettingKind[])Enum.GetValues(typeof(Core.Settings.SettingKind));
+            hud._settingButtons = new Button[kinds.Length];
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                var kind = kinds[i];
+                hud._settingButtons[i] = NewButton(kind.ToString(), hud._settingsPanel, kind.ToString(), () => hud.ToggleSetting(kind));
+                float top = 0.82f - i * 0.16f;
+                SetAnchors((RectTransform)hud._settingButtons[i].transform, new Vector2(0.08f, top - 0.13f), new Vector2(0.92f, top));
+            }
+            hud._settingsPanel.gameObject.SetActive(false);
+
             hud._world = WorldPanel.Create(hud._safeArea, hud);
             hud._dialogue = DialogueView.Create(hud._safeArea);
             return hud;
@@ -204,6 +239,7 @@ namespace WorldTree.Game
             _session.LeveledUp += OnLeveledUp;
             _world.SetSession(session);
             _dialogue.SetSession(session);
+            ApplyTextSize();
             Select(null);
             CloseAllPanels();
         }
@@ -371,6 +407,7 @@ namespace WorldTree.Game
                             "   Lifebloom " + _session.Wallet.Lifebloom;
             _level.text = "Lv " + _session.Progress.Level + "  ·  " + _session.Progress.Xp + "/" + _session.Progress.XpToNextLevel + " XP";
             RefreshOrders();
+            RefreshBanner();
             _selection.text = DescribeSelection(now);
             RefreshButtons();
             if (_satchelPanel.gameObject.activeSelf) RefreshSatchel(now);
@@ -490,6 +527,83 @@ namespace WorldTree.Game
             if (show) _codexText.text = BuildCodexText();
         }
 
+        private void ToggleSettings()
+        {
+            bool show = !_settingsPanel.gameObject.activeSelf;
+            CloseAllPanels();
+            _settingsPanel.gameObject.SetActive(show);
+            if (show) RefreshSettings();
+        }
+
+        private void ToggleSetting(Core.Settings.SettingKind kind)
+        {
+            _session.SetSetting(kind, !SettingValue(kind));
+            RefreshSettings();
+            ApplyTextSize();
+        }
+
+        private bool SettingValue(Core.Settings.SettingKind kind)
+        {
+            var s = _session.Settings;
+            switch (kind)
+            {
+                case Core.Settings.SettingKind.Music: return s.Music;
+                case Core.Settings.SettingKind.Sound: return s.Sound;
+                case Core.Settings.SettingKind.Haptics: return s.Haptics;
+                case Core.Settings.SettingKind.ReducedMotion: return s.ReducedMotion;
+                default: return s.LargeText;
+            }
+        }
+
+        private void RefreshSettings()
+        {
+            string[] names = { "Music", "Sound effects", "Vibration", "Reduced motion", "Large text" };
+            var kinds = (Core.Settings.SettingKind[])Enum.GetValues(typeof(Core.Settings.SettingKind));
+            for (int i = 0; i < kinds.Length; i++)
+                _settingButtons[i].GetComponentInChildren<TextMeshProUGUI>().text = names[i] + ": " + (SettingValue(kinds[i]) ? "On" : "Off");
+        }
+
+        /// <summary>Large text (GDD §10): bigger selection and dialogue text.</summary>
+        private void ApplyTextSize()
+        {
+            bool large = _session != null && _session.Settings.LargeText;
+            _selection.fontSize = large ? 40 : 34;
+            _dialogue.SetLargeText(large);
+        }
+
+        private void RefreshBanner()
+        {
+            if (!_banner.gameObject.activeSelf) return;
+            var area = _session.CurrentArea;
+            if (area == null)
+            {
+                _bannerText.text = _session.Story == null ? "WORLD TREE" : "The World Tree breathes again";
+                return;
+            }
+            int done = 0;
+            foreach (var task in area.Tasks) if (_session.Quest.IsTaskCompleted(task.Id)) done++;
+            _bannerText.text = area.Name + "   " + done + "/" + area.Tasks.Count + " restored";
+        }
+
+        /// <summary>
+        /// Applies the solver's layout (06-mobile-layout.md §2): HUD bar, optional banner, orders strip and context
+        /// bar, as fractions of the safe area. Returns the board region as fractions (bottom, top, width).
+        /// </summary>
+        public void ApplyLayout(Core.Layout.ScreenLayout layout, float safeWidthPt, float safeHeightPt)
+        {
+            float h = Mathf.Max(1f, safeHeightPt);
+            float hud = layout.HudHeight / h, banner = layout.BannerHeight / h, spare = layout.SpareAbove / h;
+            float orders = layout.OrdersHeight / h, context = layout.ContextHeight / h;
+            SetAnchors(_topBar, new Vector2(0f, 1f - hud), Vector2.one);
+            _banner.gameObject.SetActive(banner > 0f);
+            if (banner > 0f) SetAnchors(_banner, new Vector2(0f, 1f - hud - banner), new Vector2(1f, 1f - hud));
+            float ordersTop = 1f - hud - banner - spare;
+            SetAnchors(_ordersStrip, new Vector2(0f, ordersTop - orders), new Vector2(1f, ordersTop));
+            SetAnchors(_bottomBar, Vector2.zero, new Vector2(1f, context));
+            SetAnchors(_message.rectTransform, new Vector2(0.04f, context), new Vector2(0.96f, context + 0.035f));
+            RefreshBanner();
+        }
+
         private void ToggleWorld()
         {
             bool show = !_world.IsOpen;
@@ -500,6 +614,7 @@ namespace WorldTree.Game
         private void CloseAllPanels()
         {
             _world.Close();
+            _settingsPanel.gameObject.SetActive(false);
             _satchelPanel.gameObject.SetActive(false);
             _codexPanel.gameObject.SetActive(false);
             _giftPanel.gameObject.SetActive(false);
@@ -702,6 +817,10 @@ namespace WorldTree.Game
         internal static Image AddImage(RectTransform rt, Color color, bool raycast)
         {
             var image = rt.gameObject.AddComponent<Image>();
+            // Stand-in UI skin (roadmap D42): rounded 9-slice panels and buttons instead of hard rectangles.
+            image.sprite = PlaceholderArt.Panel;
+            image.type = Image.Type.Sliced;
+            image.pixelsPerUnitMultiplier = 0.5f;
             image.color = color;
             image.raycastTarget = raycast;
             return image;
@@ -725,6 +844,7 @@ namespace WorldTree.Game
             var button = rt.gameObject.AddComponent<Button>();
             button.targetGraphic = image;
             button.onClick.AddListener(onClick);
+            button.onClick.AddListener(() => ButtonClicked?.Invoke());
             var text = NewText("Label", rt, Vector2.zero, Vector2.one, 36, TextAlignmentOptions.Center);
             text.text = label;
             return button;

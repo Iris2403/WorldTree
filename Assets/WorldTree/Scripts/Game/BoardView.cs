@@ -100,6 +100,7 @@ namespace WorldTree.Game
 
         public void RebuildAll()
         {
+            _coverFades.Clear();
             if (_views != null)
                 for (int i = 0; i < _views.Length; i++)
                     if (_views[i] != null) _pool.Release(_views[i]);
@@ -184,6 +185,7 @@ namespace WorldTree.Game
 
         private void Update()
         {
+            AnimateCovers();
             if (_session == null || Time.unscaledTime < _nextStatus) return;
             _nextStatus = Time.unscaledTime + StatusInterval;
             var now = _session.UtcNow;
@@ -235,9 +237,49 @@ namespace WorldTree.Game
 
         private void OnCellStateChanged(GridPos p, CellState state)
         {
-            ApplyCover(p);
+            var cover = _covers[Index(p)];
+            // Blight dissolve stand-in (roadmap D42): the cover swells and fades out instead of vanishing; a
+            // revealed Sealed cell fades from roots to blight. The particle burst comes from FeedbackService.
+            if (!Tweener.ReducedMotion && cover.enabled)
+            {
+                var from = cover.color;
+                var to = state == CellState.Open ? new Color(BlightColor.r, BlightColor.g, BlightColor.b, 0f) : BlightColor;
+                _coverFades.Add(new CoverFade { Index = Index(p), From = from, To = to, Start = Time.unscaledTime, Opening = state == CellState.Open });
+            }
+            else
+            {
+                ApplyCover(p);
+            }
             var view = GetView(p);
             if (view != null) _tweener.Pop(view.transform, view.BaseScale, 0.3f);
+        }
+
+        private struct CoverFade
+        {
+            public int Index;
+            public Color From;
+            public Color To;
+            public float Start;
+            public bool Opening;
+        }
+
+        private readonly System.Collections.Generic.List<CoverFade> _coverFades = new System.Collections.Generic.List<CoverFade>();
+        private const float CoverFadeSeconds = 0.55f;
+
+        private void AnimateCovers()
+        {
+            for (int i = _coverFades.Count - 1; i >= 0; i--)
+            {
+                var f = _coverFades[i];
+                var cover = _covers[f.Index];
+                float t = Mathf.Clamp01((Time.unscaledTime - f.Start) / CoverFadeSeconds);
+                cover.color = Color.Lerp(f.From, f.To, t);
+                cover.transform.localScale = Vector3.one * (0.94f + (f.Opening ? 0.25f * t : 0f));
+                if (t < 1f) continue;
+                cover.transform.localScale = Vector3.one * 0.94f;
+                cover.enabled = !f.Opening;
+                _coverFades.RemoveAt(i);
+            }
         }
 
         private void OnSpawned(GridPos generator, GridPos target, ItemInstance item)
@@ -296,14 +338,31 @@ namespace WorldTree.Game
         {
             var def = _session.Catalog.GetItem(item.ItemId);
             Color color = Color.magenta;
-            if (_database != null && _database.TryGetVisual(item.ItemId, out var chain, out _)) color = chain.Color;
-            if (def.IsGenerator && def.Generator.IsConsumable)
-                view.Bind(PlaceholderArt.Circle, color, "?", ItemLabelColor, 0.8f); // Mystery Acorn
+            Sprite icon = null;
+            if (_database != null && _database.TryGetVisual(item.ItemId, out var chain, out var level))
+            {
+                color = chain.Color;
+                icon = level.icon;
+            }
+
+            if (icon != null)
+            {
+                // Art pipeline (docs/art/asset-spec.md): a real icon replaces the stand-in, untinted. Generators keep
+                // their level label because their icons may look alike across levels.
+                view.Bind(icon, Color.white, def.IsGenerator && !def.Generator.IsConsumable ? "G" + def.Level : string.Empty, Color.white,
+                    def.IsGenerator ? 0.92f : 0.62f + 0.04f * def.Level);
+            }
+            else if (def.IsGenerator && def.Generator.IsConsumable)
+                view.Bind(PlaceholderArt.ItemShape(PlaceholderArt.Shape.Star), color, "?", ItemLabelColor, 0.85f); // Mystery Acorn
             else if (def.IsGenerator)
                 // Generators are hollow frames over a dark cell, so their label must be light to stay readable.
                 view.Bind(PlaceholderArt.Frame, color, "G" + def.Level, Color.Lerp(color, Color.white, 0.6f), 0.9f);
             else
-                view.Bind(PlaceholderArt.Circle, Color.Lerp(color, Color.white, (def.Level - 1) * 0.06f), def.Level.ToString(), ItemLabelColor, 0.56f + 0.045f * def.Level);
+            {
+                var shape = PlaceholderArt.ShapeForChain(def.ChainId);
+                view.Bind(PlaceholderArt.ItemShape(shape), Color.Lerp(color, Color.white, (def.Level - 1) * 0.06f), def.Level.ToString(),
+                    ItemLabelColor, 0.6f + 0.045f * def.Level);
+            }
             view.SetSorting(ItemOrder);
         }
 
