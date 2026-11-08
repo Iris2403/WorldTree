@@ -50,6 +50,7 @@ When code and docs disagree, stop and reconcile them. Update the doc in the same
 - Check guards with exceptions in Core (`ArgumentOutOfRangeException`). In Presentation, use `Debug.LogError` plus a graceful fallback, and never crash the player out of a session.
 - Write XML doc comments on public Core APIs. Comment the *why*, not the *what*.
 - Wrap all player-facing text in localization keys from the start (`ui.energy.full`), even before the Localization package is added.
+- Player-facing TextMeshPro text may only use characters in the default font (LiberationSans SDF: Basic Latin and Latin-1). Symbols such as ✓, ▶, — or emoji render as empty boxes and log warnings. Use words, colour or rich-text tags instead until Phase 6 adds a font with icons.
 
 ## Testing requirements
 

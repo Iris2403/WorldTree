@@ -151,7 +151,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Debug → *Fake ads: ON*: "Ad: ½ time" appears for a refreshing generator (once per cycle), and the Sap+ panel shows "Watch ad" (5 per day)
 - [ ] Stop and restart Play: Moonpetals, gift progress, refill cost and ad counts are kept
 
-## Phase 4: Orders and rewards 🔄
+## Phase 4: Orders and rewards ✅
 
 **Deliverables:** OrderBoard and OrderGenerator with the feasibility guarantee and the demand rule (GDD §6.2), delivery by tap and by drag, rewards (Glimmer, XP, Lifebloom, chests), player levels and unlocks, reward fly-to-HUD, and balance simulation as **C# tests on Core**: the scenarios of `tools/balance/energy_sim.py` ported and their outputs compared with the Python reference.
 
@@ -163,7 +163,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Property test: 3000 seeded order streams are feasible, never 3 in a row from one chain when another is available, and stay ≤ 55% per chain
 - ✅ Tests: 244 passing via `dotnet test tools/CoreTests`
 - ✅ Unity layer written: orders strip with cards (customer, items with ✓, rewards, Deliver, Swap), drag an item onto a card to deliver it, level / XP / Lifebloom in the top bar, rewards fly up from the strip, level-up message, debug +50 XP. Type-checked against Unity API stubs only. **Not yet run in Unity**
-- ⬜ Unity Editor validation (checklist below)
+- ✅ Unity Editor validation: play-tested by the user (orders strip, Deliver, drag to order, swap, levels, saves). Follow-up fix: order cards used a ✓ glyph missing from the default TMP font; items on the board are now shown in green
 
 **⚠ Editor validation checklist:**
 - [ ] Orders strip shows 3 cards under the top bar; the board still fits below it in Device Simulator
