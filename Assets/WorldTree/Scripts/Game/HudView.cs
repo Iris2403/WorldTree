@@ -144,7 +144,7 @@ namespace WorldTree.Game
             for (int i = 0; i < hud._slotButtons.Length; i++)
             {
                 int slot = i;
-                hud._slotButtons[i] = NewButton("Slot " + i, slots, "—", () => hud.OnRetrieve(slot));
+                hud._slotButtons[i] = NewButton("Slot " + i, slots, "empty", () => hud.OnRetrieve(slot));
                 hud._slotButtons[i].GetComponentInChildren<TextMeshProUGUI>().fontSize = 32;
             }
             hud._satchelPanel.gameObject.SetActive(false);
@@ -267,9 +267,12 @@ namespace WorldTree.Game
                 sb.Append("<b>").Append(CustomerName(order.CustomerId)).Append("</b>\n");
                 foreach (var r in order.Requirements)
                 {
-                    bool ready = r.Fulfilled || _session.IsOnBoard(r.ItemId);
-                    sb.Append(r.Fulfilled ? "<s>" : "").Append(DisplayName(r.ItemId)).Append(r.Fulfilled ? "</s>" : "")
-                      .Append(ready ? " ✓" : "").Append('\n');
+                    // Delivered: struck through. On the board: green. The default TMP font (LiberationSans SDF)
+                    // has no check-mark glyph, so colour carries that meaning instead.
+                    bool onBoard = !r.Fulfilled && _session.IsOnBoard(r.ItemId);
+                    sb.Append(r.Fulfilled ? "<s>" : onBoard ? "<color=#8FE08F>" : "")
+                      .Append(DisplayName(r.ItemId))
+                      .Append(r.Fulfilled ? "</s>" : onBoard ? "</color>" : "").Append('\n');
                 }
                 sb.Append("<size=80%>+").Append(order.Glimmer).Append(" Gl  +").Append(order.Lifebloom).Append(" Lb  +").Append(order.Xp).Append(" XP");
                 if (order.BonusItemId != null) sb.Append("  +").Append(DisplayName(order.BonusItemId));
@@ -527,7 +530,7 @@ namespace WorldTree.Game
             for (int day = 0; day < Core.Economy.DailyGift.Days; day++)
             {
                 bool next = day == _session.DailyGift.NextDayIndex;
-                sb.Append(next ? "<b>▶ " : "   ").Append("Day ").Append(day + 1).Append(": ");
+                sb.Append(next ? "<b>> " : "   ").Append("Day ").Append(day + 1).Append(": ");
                 var rewards = Core.Economy.DailyGift.RewardsFor(day);
                 for (int i = 0; i < rewards.Count; i++)
                 {
@@ -601,7 +604,7 @@ namespace WorldTree.Game
                 var label = _slotButtons[i].GetComponentInChildren<TextMeshProUGUI>();
                 if (i >= _session.Satchel.Count)
                 {
-                    label.text = "—";
+                    label.text = "empty";
                     _slotButtons[i].interactable = false;
                     continue;
                 }

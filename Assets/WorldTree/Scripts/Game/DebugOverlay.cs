@@ -43,7 +43,7 @@ namespace WorldTree.Game
             GUILayout.Label("Taps: " + stats.Taps + "   Merges: " + stats.Merges);
             GUILayout.Label("Moves: " + stats.Moves + "   Swaps: " + stats.Swaps);
             GUILayout.Label("Sap spent: " + stats.SapSpent + (minutes > 0.05 ? "  (" + (stats.SapSpent / minutes).ToString("0.0") + "/min)" : ""));
-            GUILayout.Label("Seconds per Sap: " + (secondsPerSap.HasValue ? secondsPerSap.Value.ToString("0.0") : "–"));
+            GUILayout.Label("Seconds per Sap: " + (secondsPerSap.HasValue ? secondsPerSap.Value.ToString("0.0") : "-"));
             if (GUILayout.Button("Reset statistics")) stats.Reset(now);
             if (GUILayout.Button("+10 Sap")) _session.DebugAddSap(10);
             if (GUILayout.Button("Refresh all generators now")) _session.DebugRefreshAllGenerators();
