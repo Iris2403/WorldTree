@@ -206,7 +206,10 @@ namespace WorldTree.Game
             if (state == CellState.Sealed) return "Sealed by thorny roots. Cleanse the blight next to it to reveal it.";
             var def = _session.Catalog.GetItem(item.ItemId);
             string name = DisplayName(item.ItemId);
-            if (state == CellState.Withered) return name + " (Withered). Merge beside it, or drop a matching item on it.";
+            if (state == CellState.Withered)
+                return _session.Catalog.GetItem(item.ItemId).IsGenerator
+                    ? name + " (Withered). Merge any two items next to it to free it."
+                    : name + " (Withered). Drop a matching item on it to free it.";
 
             if (!def.IsGenerator) return name + " · Lv " + def.Level;
             var g = _session.GetGeneratorState(p);

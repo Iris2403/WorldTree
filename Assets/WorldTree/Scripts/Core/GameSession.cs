@@ -320,7 +320,7 @@ namespace WorldTree.Core
         private void ApplyMerge(GridPos from, GridPos to, string resultItemId)
         {
             // Cleansing is computed from the board as it was before the merge (GDD §3.3 rule 4).
-            Cleansing.Compute(Board, to, _cleansed, _revealed);
+            Cleansing.Compute(Board, Catalog, to, _cleansed, _revealed);
 
             // Generator merges always produce a full generator of the new level, with no timer running;
             // the inputs' charges and timers are discarded (GDD §4.3).

@@ -97,10 +97,10 @@ namespace WorldTree.Tests
         {
             var clock = FakeClock.AtNoon();
             var s = GameSession.NewGame(TestContent.Catalog, PrototypeContent.StartingLayout(), PrototypeContent.Energy, clock, 99);
-            // Move a Nature L1 next to the Withered row, then merge the other one onto it: (0,2) is cleansed
-            // and the Sealed (0,1) above it is revealed.
-            Assert.AreEqual(MoveKind.Move, s.DragItem(P(1, 4), P(0, 3)).Kind);
-            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(5, 4), P(0, 3)).Kind);
+            // Merge the two Nature L1 items into a Nature L2, then drop it onto the Withered Nature L2 at (0,2):
+            // (0,2) is freed and the Sealed (0,1) above it turns Withered.
+            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(1, 4), P(5, 4)).Kind);
+            Assert.AreEqual(MoveKind.Merge, s.DragItem(P(5, 4), P(0, 2)).Kind);
             Assert.AreEqual(CellState.Open, s.Board.GetState(P(0, 2)));
             Assert.AreEqual(CellState.Withered, s.Board.GetState(P(0, 1)));
             Assert.AreEqual(StoreResult.Stored, s.StoreInSatchel(P(4, 5)));
@@ -110,7 +110,7 @@ namespace WorldTree.Tests
             Assert.AreEqual(Snapshot(s), Snapshot(restored));
             Assert.AreEqual(s.Wallet.Glimmer, restored.Wallet.Glimmer);
             Assert.AreEqual(PrototypeContent.Moonwell1, restored.Satchel.Items[0].ItemId);
-            Assert.IsTrue(restored.Codex.IsDiscovered("item.nature.02"));
+            Assert.IsTrue(restored.Codex.IsDiscovered("item.nature.03"));
             Assert.AreEqual(CellState.Withered, restored.Board.GetState(P(0, 1)));
         }
 
