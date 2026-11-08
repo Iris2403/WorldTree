@@ -50,7 +50,7 @@
 - **Coordinates:** `(column, row)` with `(0, 0)` at the **top-left**.
 - **Cell states:**
   - **Open:** empty or holding one item. Only Open items can be moved, tapped, sold, stored or delivered.
-  - **Withered:** always holds exactly one item, covered by blight. The item is **visible** but **locked**.
+  - **Withered:** always holds exactly one item, covered by blight. The item is **visible** but **locked**. A Withered **item** is freed only by dropping a matching item onto it; a Withered **generator** is freed by merging next to it (§3.3).
   - **Sealed:** always holds exactly one item, covered by thorny roots. The item is **hidden** and **locked**.
 - Withered and Sealed cells are never empty, never receive spawned items, and their items don't count toward orders or "board full" checks.
 - The starting board is authored per area (`BoardLayoutDefinition`): some Open cells, and rings of Withered and Sealed cells with pre-placed items.
@@ -75,24 +75,24 @@ Generators follow the same table. Their merge specifics are in §4.3.
 
 ### 3.3 Cleansing and revealing (exact rules)
 
-1. **Only merges cleanse.** Every successful merge (normal, cleansing, or generator merge) has a **result cell R**: the cell the new item appears in.
-2. **Cleanse step:** the set `C` = R itself if it was Withered, plus every **Withered** cell orthogonally adjacent (up/down/left/right, not diagonal) to R. Every cell in `C` becomes **Open**, and its item is now free.
+1. **Only merges cleanse (free).** Every successful merge (normal, cleansing, or generator merge) has a **result cell R**: the cell the new item appears in.
+2. **Cleanse step (revised in Phase 2, roadmap D30):** the set `C` = R itself if it was Withered (a matching item was dropped onto it), plus every orthogonally adjacent (up/down/left/right, not diagonal) **Withered cell that holds a generator**. Every cell in `C` becomes **Open**, and its item is now free. **A Withered normal item is never freed by a merge next to it**: it must be merged with directly.
 3. **Reveal step:** every **Sealed** cell orthogonally adjacent to *any* cell in `C` becomes **Withered** (its item is now visible, still locked).
 4. **One step per merge, no cascade.** `C` is computed from the board state **before** the merge resolves. A cell revealed in step 3 is never cleansed by the same merge, even if it is adjacent to R. Reveals never trigger further reveals.
 5. **What never cleanses:** moves, swaps, generator spawns, deliveries, selling, satchel store/retrieve, rejected drops.
 6. The order of resolution is fixed: consume A and B → place the result in R → cleanse step → reveal step → events fire (`ItemMerged`, then `CellStateChanged` for each cell, in row-major order). This makes animation order and tests deterministic.
 7. **Tapping a locked item** shows a hint ("Merge beside it to break the blight") and does nothing else. A locked **generator** can't be activated until its cell is Open.
 
-**Example:** `W` = Withered, `S` = Sealed, `B` = the Open item that A is dropped on, `*` = the merge result cell.
+**Example:** `W` = Withered item, `G` = Withered generator, `S` = Sealed, `*` = the result of dropping a matching item onto the `W` in the middle.
 
 ```
-Before          After merging A onto B
- S  S  S         S  W  S        (the S above the cleansed W is revealed)
- .  W  S         .  .  W        (both W next to * are cleansed; the S next to each becomes W)
- .  B  W         .  *  .
+Before          After
+ S  S  S         S  W  S        (the S above the freed cell is revealed)
+ .  W  S         .  *  W        (the matching drop frees W; the S to its right is revealed)
+ .  .  G         .  .  G        (G is diagonal to *, so it stays Withered; a merge next to G would free it)
 ```
 
-**Authoring rules (enforced by `BoardLayoutValidator` and *WorldTree → Validate Data*; refined in Phase 2, roadmap D28):** every Withered and Sealed cell holds an item; at least 6 Open cells exist at the start; the generators on Open cells hold at least 120 charges together (§4.2); and **every connected region of locked cells contains a Withered cell next to an Open cell**. That last condition is exactly what makes the whole board unlockable: merging beside that Withered cell cleanses it, which reveals its Sealed neighbours and opens new merge spots, so cleansing spreads through the region one step at a time. (A Sealed cell next to an Open cell, with no Withered cell in its region next to an Open cell, could never be revealed.)
+**Authoring rules (enforced by `BoardLayoutValidator` and *WorldTree → Validate Data*; roadmap D28, D30):** every Withered and Sealed cell holds an item; at least 6 Open cells exist at the start; the generators on Open cells hold at least 120 charges together (§4.2); no locked normal item is at its chain's max level (nothing could ever merge with it); and **every connected region of locked cells contains a cell that can be freed right away**: a Withered item (a matching item can be dropped onto it from anywhere), or a Withered generator next to an Open cell. Freeing it reveals its Sealed neighbours, so the region opens step by step. A locked item's chain doesn't need a generator on the same board, because chains can become obtainable later in the game.
 
 - **Tap** an item to select it and show its info panel (name, level, chain preview, sell value). **Tap a generator** to produce items (§4).
 - Drag starts after an 8 px (DPI-scaled) movement threshold. Below that, the input counts as a tap.

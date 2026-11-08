@@ -195,14 +195,14 @@ namespace WorldTree.Tests
         }
 
         [Test]
-        public void CleansingFreesAndDiscoversTheItem()
+        public void FreeingAWitheredGeneratorDiscoversIt()
         {
-            Put(_s, 3, 3, "item.craft.02");
+            Put(_s, 3, 3, PrototypeContent.Stump1);
             _s.Board.SetState(P(3, 3), CellState.Withered);
             Put(_s, 3, 4, "item.nature.01");
             Put(_s, 0, 8, "item.nature.01");
             _s.DragItem(P(0, 8), P(3, 4));
-            Assert.IsTrue(_s.Codex.IsDiscovered("item.craft.02"));
+            Assert.IsTrue(_s.Codex.IsDiscovered(PrototypeContent.Stump1));
         }
 
         [Test]

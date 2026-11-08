@@ -52,14 +52,14 @@ namespace WorldTree.Tests
         }
 
         [Test]
-        public void SealedRegionWithoutWitheredEntryCanNeverUnlock()
+        public void SealedRegionWithoutWitheredCellCanNeverStartUnlocking()
         {
             var errors = Validate(new LayoutPlacement(P(3, 3), "item.water.01", CellState.Sealed));
-            Assert.That(errors, Has.Some.Contains("can never be unlocked"));
+            Assert.That(errors, Has.Some.Contains("can never start unlocking"));
         }
 
         [Test]
-        public void SealedBehindWitheredNextToOpenIsValid()
+        public void SealedBehindWitheredItemIsValid()
         {
             CollectionAssert.IsEmpty(Validate(
                 new LayoutPlacement(P(3, 1), "item.water.01", CellState.Withered),
@@ -67,16 +67,42 @@ namespace WorldTree.Tests
         }
 
         [Test]
-        public void RegionWhoseWitheredCellsDoNotTouchOpenCellsIsAnError()
+        public void WitheredItemFarFromOpenCellsIsAValidEntryPoint()
         {
-            // W surrounded by Sealed cells: Sealed next to Open can't be revealed, W can't be reached.
-            var errors = Validate(
+            // A matching item can be dropped onto it from anywhere.
+            CollectionAssert.IsEmpty(Validate(
                 new LayoutPlacement(P(3, 3), "item.water.01", CellState.Withered),
                 new LayoutPlacement(P(3, 2), "item.water.01", CellState.Sealed),
                 new LayoutPlacement(P(3, 4), "item.water.01", CellState.Sealed),
                 new LayoutPlacement(P(2, 3), "item.water.01", CellState.Sealed),
+                new LayoutPlacement(P(4, 3), "item.water.01", CellState.Sealed)));
+        }
+
+        [Test]
+        public void RegionWhoseOnlyWitheredCellIsAnEnclosedGeneratorIsAnError()
+        {
+            // A Withered generator is freed only by merging beside it, which needs an Open neighbour.
+            var errors = Validate(
+                new LayoutPlacement(P(3, 3), PrototypeContent.Stump1, CellState.Withered),
+                new LayoutPlacement(P(3, 2), "item.water.01", CellState.Sealed),
+                new LayoutPlacement(P(3, 4), "item.water.01", CellState.Sealed),
+                new LayoutPlacement(P(2, 3), "item.water.01", CellState.Sealed),
                 new LayoutPlacement(P(4, 3), "item.water.01", CellState.Sealed));
-            Assert.That(errors, Has.Some.Contains("can never be unlocked"));
+            Assert.That(errors, Has.Some.Contains("can never start unlocking"));
+        }
+
+        [Test]
+        public void LockedMaxLevelItemIsAnError()
+        {
+            var errors = Validate(new LayoutPlacement(P(3, 3), "item.water.08", CellState.Withered));
+            Assert.That(errors, Has.Some.Contains("max-level"));
+        }
+
+        [Test]
+        public void LockedItemOfAChainWithoutGeneratorOnTheBoardIsAllowed()
+        {
+            // Chains can become obtainable later in the game (roadmap D30).
+            CollectionAssert.IsEmpty(Validate(new LayoutPlacement(P(3, 3), "item.craft.02", CellState.Withered)));
         }
 
         [Test]

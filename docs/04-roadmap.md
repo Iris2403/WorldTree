@@ -66,6 +66,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D27 | Glimmer in Phase 2 | A minimal Glimmer wallet is introduced in Phase 2. First discoveries pay Glimmer only (2 per item level); XP stays in Phase 4 | Selling and first-discovery rewards (Phase 2 scope) both pay Glimmer, which the roadmap had placed in Phase 4. Found while implementing Phase 2 |
 | D28 | Unlockable-board rule | The validator checks the exact condition "every locked region has a Withered cell next to an Open cell", replacing the looser GDD §3.3 wording | The original wording allowed boards that can never be fully unlocked (a Sealed cell next to Open cells only). Found while implementing the validator |
 | D29 | Phase 2 content | Nature and Water extended to 8 levels; new Craft chain (6 levels) with the Woodwright's Stump; the starting board gains a Withered row and two Sealed rows that hide the Stump | Phase 2 needs full chain data and a board that exercises the blight rules. IDs are unchanged, so Phase 1 saves still load |
+| D30 | Freeing Withered cells | **Supersedes part of GDD §3.3 rule 2.** A Withered item is freed only by dropping a matching item onto it; a merge next to it no longer frees it. A Withered generator is still freed by a merge next to it. Sealed cells still turn Withered when a neighbour is freed. The validator rejects locked max-level items, but allows locked items whose chain has no generator on the board yet | User feedback from play-testing Phase 2: merging beside blighted items freed them too easily. Generators are the exception because a matching generator is rarely available. Chains may become obtainable in later levels |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -107,7 +108,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 **⚠ Editor validation checklist:**
 - [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → choose **Update**. Then *WorldTree → Validate Data* reports "All data is valid"
 - [ ] Press Play, then Debug → **Reset save (new game)** to start on the Phase 2 board: rows 0–1 dark (Sealed), row 2 purple-tinted (Withered) with visible items
-- [ ] Merging an item in row 3 cleanses the Withered cell above it (tint disappears) and the Sealed cell above that turns Withered. Diagonals are untouched
+- [ ] Merging next to a Withered **item** doesn't free it. Dropping a matching item onto it frees it (tint disappears) and the Sealed cell above turns Withered (roadmap D30)
+- [ ] Merging next to a Withered **generator** frees it
 - [ ] Dropping a matching item directly onto a Withered item merges and cleanses it; a different item bounces back
 - [ ] While dragging, matching items (including Withered ones) are outlined
 - [ ] Generators show their charges under the frame; when empty they dim and show a countdown
