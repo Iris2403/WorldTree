@@ -13,7 +13,11 @@ namespace WorldTree.Core.Content
     {
         public const int MinOpenCells = 6;
 
-        /// <summary>The generators on Open cells must hold at least this many charges together (GDD §4.2).</summary>
+        /// <summary>
+        /// Generators available from the start must hold at least this many charges together (GDD §4.2).
+        /// Counted: generators on Open cells, plus Withered generators next to an Open cell, because the
+        /// first merge beside them frees them (roadmap D31).
+        /// </summary>
         public const int MinGuaranteedCharges = 120;
 
         public static List<string> Validate(BoardLayout layout, ICatalog catalog)
@@ -60,12 +64,16 @@ namespace WorldTree.Core.Content
                             guaranteedCharges += catalog.GetItem(item.ItemId).Generator.Capacity;
                         continue;
                     }
-                    if (item != null) CheckLockedItemCanBeFreed(pos, catalog.GetItem(item.ItemId), errors);
+                    if (item == null) continue;
+                    CheckLockedItemCanBeFreed(pos, catalog.GetItem(item.ItemId), errors);
+                    if (state == CellState.Withered && catalog.GetItem(item.ItemId).IsGenerator && HasOpenNeighbour(board, pos))
+                        guaranteedCharges += catalog.GetItem(item.ItemId).Generator.Capacity;
                 }
             }
             if (open < MinOpenCells) errors.Add("Only " + open + " Open cells; at least " + MinOpenCells + " are required");
             if (guaranteedCharges < MinGuaranteedCharges)
-                errors.Add("Generators on Open cells hold " + guaranteedCharges + " charges; at least " + MinGuaranteedCharges + " are required (GDD §4.2)");
+                errors.Add("Generators available from the start hold " + guaranteedCharges + " charges; at least " + MinGuaranteedCharges +
+                           " are required (GDD §4.2; Withered generators next to an Open cell count)");
 
             CheckLockedRegionsCanStartUnlocking(board, catalog, errors);
             return errors;
@@ -88,6 +96,13 @@ namespace WorldTree.Core.Content
         /// normal item (drop a match onto it, from anywhere), or a Withered generator next to an Open cell
         /// (merge beside it). Freeing a cell reveals its Sealed neighbours, so the region opens step by step.
         /// </summary>
+        private static bool HasOpenNeighbour(BoardModel board, GridPos pos)
+        {
+            foreach (var n in Cleansing.Neighbours(board, pos))
+                if (board.GetState(n) == CellState.Open) return true;
+            return false;
+        }
+
         private static void CheckLockedRegionsCanStartUnlocking(BoardModel board, ICatalog catalog, List<string> errors)
         {
             var visited = new HashSet<GridPos>();

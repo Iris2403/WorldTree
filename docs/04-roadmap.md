@@ -67,6 +67,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D28 | Unlockable-board rule | The validator checks the exact condition "every locked region has a Withered cell next to an Open cell", replacing the looser GDD §3.3 wording | The original wording allowed boards that can never be fully unlocked (a Sealed cell next to Open cells only). Found while implementing the validator |
 | D29 | Phase 2 content | Nature and Water extended to 8 levels; new Craft chain (6 levels) with the Woodwright's Stump; the starting board gains a Withered row and two Sealed rows that hide the Stump | Phase 2 needs full chain data and a board that exercises the blight rules. IDs are unchanged, so Phase 1 saves still load |
 | D30 | Freeing Withered cells | **Supersedes part of GDD §3.3 rule 2.** A Withered item is freed only by dropping a matching item onto it; a merge next to it no longer frees it. A Withered generator is still freed by a merge next to it. Sealed cells still turn Withered when a neighbour is freed. The validator rejects locked max-level items, but allows locked items whose chain has no generator on the board yet | User feedback from play-testing Phase 2: merging beside blighted items freed them too easily. Generators are the exception because a matching generator is rarely available. Chains may become obtainable in later levels |
+| D31 | Small-centre start | The starting board opens only the 3 × 3 centre (Seed Pouch in the middle, 8 free places). A Withered ring surrounds it, with the Moonwell Spring next to the centre; the rest is Sealed. The 120-charge rule counts Withered generators next to an Open cell | User request: start small with one generator and expand by merging. A test with a simple automated player opens the whole board in about 90–100 actions (22–28 taps) on three seeds and frees the Moonwell Spring within the first few actions |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -107,7 +108,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 
 **⚠ Editor validation checklist:**
 - [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → choose **Update**. Then *WorldTree → Validate Data* reports "All data is valid"
-- [ ] Press Play, then Debug → **Reset save (new game)** to start on the Phase 2 board: rows 0–1 dark (Sealed), row 2 purple-tinted (Withered) with visible items
+- [ ] Press Play, then Debug → **Reset save (new game)** to start on the new board (D31): only the 3 × 3 centre is open with the Seed Pouch in the middle, a purple Withered ring around it, dark Sealed cells outside
 - [ ] Merging next to a Withered **item** doesn't free it. Dropping a matching item onto it frees it (tint disappears) and the Sealed cell above turns Withered (roadmap D30)
 - [ ] Merging next to a Withered **generator** frees it
 - [ ] Dropping a matching item directly onto a Withered item merges and cleanses it; a different item bounces back

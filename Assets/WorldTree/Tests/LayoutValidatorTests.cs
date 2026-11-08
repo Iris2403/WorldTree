@@ -41,14 +41,54 @@ namespace WorldTree.Tests
         }
 
         [Test]
-        public void GeneratorsUnderBlightDoNotCountAsGuaranteed()
+        public void WitheredGeneratorNextToAnOpenCellCountsAsAvailable()
+        {
+            // The first merge beside it frees it (roadmap D31).
+            CollectionAssert.IsEmpty(BoardLayoutValidator.Validate(new BoardLayout(7, 9, new[]
+            {
+                new LayoutPlacement(P(0, 8), PrototypeContent.SeedPouch1),
+                new LayoutPlacement(P(3, 3), PrototypeContent.Moonwell1, CellState.Withered),
+            }), TestContent.Catalog));
+        }
+
+        [Test]
+        public void GeneratorsDeeperInTheBlightDoNotCountAsAvailable()
         {
             var errors = BoardLayoutValidator.Validate(new BoardLayout(7, 9, new[]
             {
                 new LayoutPlacement(P(0, 8), PrototypeContent.SeedPouch1),
-                new LayoutPlacement(P(3, 3), PrototypeContent.Moonwell1, CellState.Withered),
+                new LayoutPlacement(P(3, 0), PrototypeContent.Moonwell1, CellState.Sealed),
+                new LayoutPlacement(P(3, 1), "item.water.01", CellState.Withered),
+                new LayoutPlacement(P(2, 0), "item.water.01", CellState.Sealed),
+                new LayoutPlacement(P(4, 0), "item.water.01", CellState.Sealed),
             }), TestContent.Catalog);
             Assert.That(errors, Has.Some.Contains("charges"));
+        }
+
+        [Test]
+        public void StartingBoardOpensOnlyTheCentreWithOneGenerator()
+        {
+            var layout = PrototypeContent.StartingLayout();
+            int open = 0, openGenerators = 0;
+            var openCells = new System.Collections.Generic.HashSet<Core.Common.GridPos>();
+            for (int y = 3; y <= 5; y++) for (int x = 2; x <= 4; x++) openCells.Add(P(x, y));
+            var placed = new System.Collections.Generic.Dictionary<Core.Common.GridPos, LayoutPlacement>();
+            foreach (var p in layout.Placements) placed[p.Pos] = p;
+            for (int y = 0; y < layout.Height; y++)
+            for (int x = 0; x < layout.Width; x++)
+            {
+                var pos = P(x, y);
+                bool isOpen = !placed.TryGetValue(pos, out var p) || p.State == CellState.Open;
+                Assert.AreEqual(openCells.Contains(pos), isOpen, "cell " + pos);
+                if (!isOpen) continue;
+                open++;
+                if (placed.ContainsKey(pos) && TestContent.Catalog.GetItem(placed[pos].ItemId).IsGenerator) openGenerators++;
+            }
+            Assert.AreEqual(9, open, "3 x 3 centre");
+            Assert.AreEqual(1, openGenerators, "only the Seed Pouch");
+            Assert.AreEqual(PrototypeContent.SeedPouch1, placed[P(3, 4)].ItemId);
+            Assert.AreEqual(CellState.Withered, placed[P(3, 2)].State);
+            Assert.AreEqual(PrototypeContent.Moonwell1, placed[P(3, 2)].ItemId);
         }
 
         [Test]
