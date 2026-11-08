@@ -40,6 +40,16 @@ namespace WorldTree.Game
 
         public GameSession Session { get; private set; }
 
+        /// <summary>
+        /// Debug: makes every rewarded "ad" complete instantly, so ad rewards can be tested before the
+        /// real ad service exists (Phase 8). Off by default: with no ad service, ad buttons stay hidden.
+        /// </summary>
+        public bool FakeAdsEnabled
+        {
+            get => _hud != null && _hud.Ads is FakeAdService;
+            set { if (_hud != null) _hud.Ads = value ? (IAdService)new FakeAdService() : new NoAdService(); }
+        }
+
         private void Awake()
         {
             Application.targetFrameRate = 60;

@@ -82,6 +82,8 @@ namespace WorldTree.Game
             _session.ItemSold += OnSold;
             _session.ItemRetrieved += OnRetrieved;
             _session.SaleUndone += OnRestored;
+            _session.GeneratorExhausted += OnRemoved;
+            _session.ItemAwarded += OnRetrieved;
             RebuildAll();
         }
 
@@ -193,6 +195,7 @@ namespace WorldTree.Game
                 if (view == null || _session.Board.GetState(p) != CellState.Open) continue;
                 var state = _session.GetGeneratorState(p);
                 if (state == null) continue;
+                // Consumables show taps left; permanent generators show charges, or the countdown while waiting.
                 bool waiting = state.Charges == 0 && state.RefreshEndsUtc.HasValue;
                 view.SetGeneratorStatus(waiting ? HudView.FormatTime(state.RefreshEndsUtc.Value - now) : state.Charges.ToString(), waiting);
             }
@@ -294,7 +297,9 @@ namespace WorldTree.Game
             var def = _session.Catalog.GetItem(item.ItemId);
             Color color = Color.magenta;
             if (_database != null && _database.TryGetVisual(item.ItemId, out var chain, out _)) color = chain.Color;
-            if (def.IsGenerator)
+            if (def.IsGenerator && def.Generator.IsConsumable)
+                view.Bind(PlaceholderArt.Circle, color, "?", ItemLabelColor, 0.8f); // Mystery Acorn
+            else if (def.IsGenerator)
                 // Generators are hollow frames over a dark cell, so their label must be light to stay readable.
                 view.Bind(PlaceholderArt.Frame, color, "G" + def.Level, Color.Lerp(color, Color.white, 0.6f), 0.9f);
             else
@@ -382,6 +387,8 @@ namespace WorldTree.Game
             _session.ItemSold -= OnSold;
             _session.ItemRetrieved -= OnRetrieved;
             _session.SaleUndone -= OnRestored;
+            _session.GeneratorExhausted -= OnRemoved;
+            _session.ItemAwarded -= OnRetrieved;
         }
 
         private void OnDestroy() => Unsubscribe();

@@ -31,6 +31,7 @@ namespace WorldTree.EditorTools
             { PrototypeContent.MoonwellChain, new Color(0.45f, 0.9f, 0.85f) },
             { PrototypeContent.CraftChain, new Color(0.85f, 0.62f, 0.4f) },
             { PrototypeContent.StumpChain, new Color(0.75f, 0.5f, 0.3f) },
+            { PrototypeContent.AcornChain, new Color(0.95f, 0.8f, 0.35f) },
         };
 
         [MenuItem("WorldTree/Setup/Build Prototype Scene")]
@@ -117,7 +118,7 @@ namespace WorldTree.EditorTools
                     var levels = new List<ItemChainDefinition.Level>();
                     foreach (var item in chain.Levels)
                     {
-                        PrototypeContent.DisplayNames.TryGetValue(item.Id, out var displayName);
+                        var displayName = PrototypeContent.NameOf(item.Id);
                         levels.Add(new ItemChainDefinition.Level { id = item.Id, displayName = displayName, sellValue = item.SellValue });
                     }
                     asset.Configure(chain.Id, ChainColors.TryGetValue(chain.Id, out var c) ? c : Color.white, levels);
@@ -158,7 +159,8 @@ namespace WorldTree.EditorTools
         {
             var drops = new List<GeneratorDefinition.Drop>();
             foreach (var d in item.Generator.Drops.Entries) drops.Add(new GeneratorDefinition.Drop { itemId = d.ItemId, weight = d.Weight });
-            asset.Configure(item.Id, item.Generator.Capacity, (float)item.Generator.RefreshDuration.TotalMinutes, item.Generator.SapCost, drops);
+            float minutes = item.Generator.IsConsumable ? 0f : (float)item.Generator.RefreshDuration.TotalMinutes;
+            asset.Configure(item.Id, item.Generator.Capacity, minutes, item.Generator.SapCost, drops, item.Generator.IsConsumable);
         }
 
         private static void BuildScene(GameDatabase database)
