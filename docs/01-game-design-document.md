@@ -320,6 +320,7 @@ This meets the §9 targets (Area 1 in 2–3 days, Area 5 in 6–8 weeks). Order 
 | 4 | **Crystal Roots** | Glowing caverns beneath the Tree | Glimmer Geode, crystal chain | The blight's source runs deep, and something is *sealed* below |
 | 5 | **The Heartwood** | Inside the Tree's living core | Heartwood charms | Revelation (see §8) and the season-one finale |
 
+- **Implemented (Phase 5, roadmap D40–D41):** Sunlit Glade has 10 tasks costing 500 Lifebloom in total and rewards the Hearthstone Oven; Emberroot Village has 10 tasks costing 900 Lifebloom and gives the first Memory Leaf. Tasks are restored in order. Measured with real orders, a core player restores the Glade in about 2 days and the Village in about 6 more.
 - Each area has **8–15 restoration tasks**. Each completed task changes the area art: a **corrupted layer dissolves** and a restored layer fades in (fountain flowing, lanterns lit, creatures returning).
 - Area completion: a short celebration, the chapter-end story scene, and the next area unlocks. Completed areas stay visitable, and their generators stay available.
 

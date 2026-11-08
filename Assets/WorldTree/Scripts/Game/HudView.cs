@@ -50,6 +50,8 @@ namespace WorldTree.Game
         private TextMeshProUGUI _energyText;
         private Button _refillButton;
         private Button _adSapButton;
+        private WorldPanel _world;
+        private DialogueView _dialogue;
         private RectTransform _satchelPanel;
         private Button[] _slotButtons;
         private RectTransform _codexPanel;
@@ -66,7 +68,8 @@ namespace WorldTree.Game
         /// <summary>True while any panel is open; the board ignores input then.</summary>
         public bool IsPanelOpen =>
             _satchelPanel.gameObject.activeSelf || _codexPanel.gameObject.activeSelf ||
-            _giftPanel.gameObject.activeSelf || _energyPanel.gameObject.activeSelf;
+            _giftPanel.gameObject.activeSelf || _energyPanel.gameObject.activeSelf ||
+            _world.IsOpen || _dialogue.IsOpen;
 
         public static HudView Create(Transform parent)
         {
@@ -118,6 +121,7 @@ namespace WorldTree.Game
             hud._undoButton = NewButton("Undo", hud._bottomBar, "Undo", hud.OnUndo);
             hud._skipButton = NewButton("Skip", hud._bottomBar, "Skip", hud.OnSkip);
             hud._adSpeedButton = NewButton("AdSpeed", hud._bottomBar, "Ad: ½ time", hud.OnAdSpeedUp);
+            NewButton("World", hud._bottomBar, "World", hud.ToggleWorld);
             hud._satchelButton = NewButton("Satchel", hud._bottomBar, "Satchel", hud.ToggleSatchel);
             NewButton("Codex", hud._bottomBar, "Codex", hud.ToggleCodex);
             hud._giftButton = NewButton("Gift", hud._bottomBar, "Gift", hud.ToggleGift);
@@ -178,6 +182,9 @@ namespace WorldTree.Game
             hud._adSapButton = NewButton("AdSap", hud._energyPanel, "Watch ad", hud.OnAdSap);
             SetAnchors((RectTransform)hud._adSapButton.transform, new Vector2(0.52f, 0.08f), new Vector2(0.95f, 0.42f));
             hud._energyPanel.gameObject.SetActive(false);
+
+            hud._world = WorldPanel.Create(hud._safeArea, hud);
+            hud._dialogue = DialogueView.Create(hud._safeArea);
             return hud;
         }
 
@@ -195,6 +202,8 @@ namespace WorldTree.Game
             _session.ItemDiscovered += OnDiscovered;
             _session.OrderCompleted += OnOrderCompleted;
             _session.LeveledUp += OnLeveledUp;
+            _world.SetSession(session);
+            _dialogue.SetSession(session);
             Select(null);
             CloseAllPanels();
         }
@@ -348,6 +357,8 @@ namespace WorldTree.Game
         {
             ApplySafeArea();
             AnimateFlyingLabels();
+            // Queued story scenes appear as soon as no other panel is in the way (GDD §8.4).
+            if (_session != null && !_dialogue.IsOpen && !_world.IsOpen && !IsPanelOpen) _dialogue.TryShowPending();
             if (_message.text.Length > 0 && Time.unscaledTime > _messageUntil) _message.text = string.Empty;
             if (_session == null || Time.unscaledTime < _nextRefresh) return;
             _nextRefresh = Time.unscaledTime + RefreshInterval;
@@ -479,8 +490,16 @@ namespace WorldTree.Game
             if (show) _codexText.text = BuildCodexText();
         }
 
+        private void ToggleWorld()
+        {
+            bool show = !_world.IsOpen;
+            CloseAllPanels();
+            if (show) _world.Open();
+        }
+
         private void CloseAllPanels()
         {
+            _world.Close();
             _satchelPanel.gameObject.SetActive(false);
             _codexPanel.gameObject.SetActive(false);
             _giftPanel.gameObject.SetActive(false);

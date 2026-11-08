@@ -32,6 +32,8 @@ namespace WorldTree.EditorTools
             { PrototypeContent.CraftChain, new Color(0.85f, 0.62f, 0.4f) },
             { PrototypeContent.StumpChain, new Color(0.75f, 0.5f, 0.3f) },
             { PrototypeContent.AcornChain, new Color(0.95f, 0.8f, 0.35f) },
+            { PrototypeContent.FoodChain, new Color(0.95f, 0.45f, 0.5f) },
+            { PrototypeContent.OvenChain, new Color(0.9f, 0.4f, 0.25f) },
         };
 
         [MenuItem("WorldTree/Setup/Build Prototype Scene")]
@@ -73,6 +75,8 @@ namespace WorldTree.EditorTools
             {
                 var catalog = database.BuildCatalog();
                 errors.AddRange(BoardLayoutValidator.Validate(database.BuildLayout(), catalog));
+                var story = database.BuildStory();
+                if (story != null) errors.AddRange(story.Validate(catalog));
             }
             catch (System.Exception e)
             {
@@ -146,6 +150,7 @@ namespace WorldTree.EditorTools
 
             var database = LoadOrCreate<GameDatabase>(DatabasePath, false, asset => { });
             database.Configure(chainAssets, generatorAssets, layout, energy);
+            CreateStoryAssets(database, overwrite);
             EditorUtility.SetDirty(database);
             AssetDatabase.SaveAssets();
 
@@ -153,6 +158,37 @@ namespace WorldTree.EditorTools
             database.BuildCatalog();
             database.BuildLayout();
             return database;
+        }
+
+        private static void CreateStoryAssets(GameDatabase database, bool overwrite)
+        {
+            EnsureFolder(DataRoot + "/Areas");
+            EnsureFolder(DataRoot + "/Dialogue");
+            var dialogueAssets = new List<DialogueDefinition>();
+            foreach (var scene in StoryContent.Scenes())
+            {
+                dialogueAssets.Add(LoadOrCreate<DialogueDefinition>(DataRoot + "/Dialogue/" + AssetName(scene.Id) + ".asset", overwrite, asset =>
+                {
+                    var lines = new List<DialogueDefinition.Line>();
+                    foreach (var l in scene.Lines) lines.Add(new DialogueDefinition.Line { speaker = l.SpeakerId, text = l.Text });
+                    asset.Configure(scene.Id, lines);
+                }));
+            }
+            var areaAssets = new List<AreaDefinition>();
+            int index = 1;
+            foreach (var area in StoryContent.Areas())
+            {
+                string path = DataRoot + "/Areas/Area_" + (index++).ToString("00") + "_" + AssetName(area.Id) + ".asset";
+                areaAssets.Add(LoadOrCreate<AreaDefinition>(path, overwrite, asset =>
+                {
+                    var tasks = new List<AreaDefinition.Task>();
+                    foreach (var t in area.Tasks)
+                        tasks.Add(new AreaDefinition.Task { id = t.Id, name = t.Name, lifebloomCost = t.LifebloomCost, dialogueId = t.DialogueId });
+                    asset.Configure(area.Id, area.Name, tasks, area.IntroDialogueId, area.CompletionDialogueId,
+                        new List<string>(area.RewardItemIds), area.MemoryLeafId);
+                }));
+            }
+            database.ConfigureStory(areaAssets, dialogueAssets);
         }
 
         private static void ConfigureGenerator(GeneratorDefinition asset, ItemDef item)

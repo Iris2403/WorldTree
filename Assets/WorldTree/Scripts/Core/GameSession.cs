@@ -627,6 +627,13 @@ namespace WorldTree.Core
             return ClaimResult.Claimed;
         }
 
+        public void DebugAddLifebloom(int amount)
+        {
+            Wallet.AddLifebloom(amount);
+            Changed();
+            WalletChanged?.Invoke();
+        }
+
         public void DebugAddXp(int amount)
         {
             AddXp(amount);

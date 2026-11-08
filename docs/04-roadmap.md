@@ -76,6 +76,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D37 | Demand rule implementation | With two or more chains, each new order is the candidate (one rolled per chain) that leaves the least demand over the last 20 orders including itself, max 2 in a row per chain, with a re-roll guard against exceeding 55% in the window | Choosing the chain first and sizing afterwards let 1 seed in 3000 reach 56%. Balancing on the window including the new order's size keeps the worst 60-order stream at 54.1% (average 50.9%) |
 | D38 | Orders the generators can cover | The generator also avoids orders that, together with the other open orders on that chain, need more than the chain's generators can still produce this cycle. Result: 0 stalls for order-driven players with real orders (3 profiles × 4 levels × 50 seeds). "Strict" players (only the oldest order) stop early in 1.05% of sessions, capped at 2% by a test | Real orders grow larger than the Python patterns (up to ~39 taps), so a 50/50 average alone still produced occasional forced stalls |
 | D39 | Days per area | Checked in Phase 5, when area restoration costs exist. Phase 4 provides the Lifebloom income they will be set from | "Days per area" needs Lifebloom costs per area, which are Phase 5 content |
+| D40 | Area costs and days per area | Area 1 Sunlit Glade: 10 tasks, 500 Lifebloom. Area 2 Emberroot Village: 10 tasks, 900 Lifebloom. Set from simulated Lifebloom income of a core player with real orders: Glade 1.7–2.4 days (levels 2–3), Village 6.0–6.8 days (levels 6–8), checked by a test against the GDD §5.1 targets (about 2–3 and about 6 more) | Completes D39. Lifebloom per Sap is higher early (small orders pay at least 1 Lifebloom), so costs are set per area from measured income, not from the Sap budget alone |
+| D41 | Phase 5 scope cuts | Tasks are restored in order and cost Lifebloom only. Story orders (GDD §6.2) and replaying scenes from the Codex are not built yet. The area view is a graybox: one tile per task cross-fading from blighted to restored; layered area art comes in Phase 6. Areas 3–5 are not built; after Area 2 the World panel says more is coming | Keeps Phase 5 to the roadmap's deliverables. Each cut can be added later without changing saves |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -174,13 +176,28 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Level, XP and Lifebloom update; Debug → +50 XP levels up, refills Sap and shows "Level up!"; at level 8 a 4th order appears
 - [ ] Stop and restart Play: orders (including delivered pieces), level, XP and Lifebloom are kept
 
-## Phase 5: Story and world restoration ⬜
+## Phase 5: Story and world restoration 🔄
 
-**Deliverables:** AreaDefinition and QuestLine, restoration tasks, layered area scene with corrupted/restored cross-fades, dialogue system and scenes for Areas 1–2, story flags, area transitions, Memory Leaf vignettes.
+**Deliverables:** AreaDefinition and QuestLine, restoration tasks, layered area scene with corrupted/restored cross-fades (graybox tiles for now, D41), dialogue system and scenes for Areas 1–2, story flags, area transitions, Memory Leaf vignettes.
 
-**Acceptance:** quest progression tests, save/restore mid-quest.
+**Acceptance:** quest progression tests, save/restore mid-quest. Plus the days-per-area check moved from Phase 4 (D39).
 
-**⚠ Editor validation:** area art transitions, dialogue presentation.
+**Status:**
+- ✅ Core: areas with ordered restoration tasks paid in Lifebloom, area completion (flag, Memory Leaf, rewards that are never lost, completion scene, next area and intro), dialogue queue, saves (older saves start at Area 1)
+- ✅ Content: Area 1 Sunlit Glade (reward: Hearthstone Oven), Area 2 Emberroot Village (first Memory Leaf, reward: Moonwell Spring Lv2), 9 original scenes; Food chain and Hearthstone Oven Lv1–5
+- ✅ Balance: days per area with real orders within targets (D40)
+- ✅ Tests: 260 passing via `dotnet test tools/CoreTests` (16 new)
+- ✅ Unity layer written: area and dialogue assets (created by the setup menu), World panel (task tiles cross-fade, Restore button), dialogue box (Next, Skip; Memory Leaf lines in gold italics), story validation in *Validate Data* and at boot, debug +100 Lifebloom. Type-checked against Unity API stubs only. **Not yet run in Unity**
+- ⬜ Unity Editor validation (checklist below)
+
+**⚠ Editor validation checklist:**
+- [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → **Update** (creates the area and dialogue assets), then *Validate Data* is clean
+- [ ] Debug → *Reset save (new game)*: Pip's intro scene appears; Next steps through it, Skip closes it
+- [ ] World button opens Sunlit Glade with 10 grey-violet tiles and "Next: Clear the withered path, cost 15"
+- [ ] With enough Lifebloom (Debug → +100 Lifebloom), Restore cross-fades the first tile to colour; the second task plays Elder Thalen's scene
+- [ ] Restoring all 10 glade tasks shows the completion scene, places the Hearthstone Oven on the board, then Marra's village intro; new orders can ask for Food
+- [ ] Restoring Emberroot Village plays the Memory Leaf scene (gold italic lines) and gives a Moonwell Spring Lv2; the World panel then says more is coming
+- [ ] Stop and restart Play mid-area: restored tiles, the next task and unseen scenes are kept
 
 ## Phase 6: Visual polish, animation and sound ⬜
 
