@@ -42,7 +42,9 @@ namespace WorldTree.Data
                 if (g == null) continue;
                 var entries = new List<DropEntry>();
                 foreach (var d in g.Drops) entries.Add(new DropEntry(d.itemId, d.weight));
-                var def = new GeneratorDef(g.Capacity, TimeSpan.FromMinutes(g.RefreshMinutes), g.SapCost, new DropTable(entries));
+                var def = g.Consumable
+                    ? GeneratorDef.Consumable(g.Capacity, g.SapCost, new DropTable(entries))
+                    : new GeneratorDef(g.Capacity, TimeSpan.FromMinutes(g.RefreshMinutes), g.SapCost, new DropTable(entries));
                 if (generatorById.ContainsKey(g.ItemId)) throw new InvalidOperationException("Two generator assets for " + g.ItemId);
                 generatorById.Add(g.ItemId, def);
             }

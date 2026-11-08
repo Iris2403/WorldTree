@@ -134,7 +134,7 @@ Generators are board items that produce chain items when tapped.
 ### 4.1 Rules
 
 - **Tap cost:** 1 Sap per tap (some special generators are free).
-- **Charges and the refresh cycle (design reviews 2 and 3):** each permanent generator holds up to `capacity` charges for its level, and a tap uses 1 charge. The **first tap on a full generator starts a fixed refresh timer** (20 min at Lv1). When the timer ends, the generator returns to **full capacity, however many charges are left**. Further taps during the cycle don't restart or extend the timer. If charges reach 0 before the timer ends, the generator *waits* for the end of the cycle. The timer can be skipped for Moonpetals, or the remaining time halved once per cycle by a rewarded ad.
+- **Charges and the refresh cycle (design reviews 2 and 3):** each permanent generator holds up to `capacity` charges for its level, and a tap uses 1 charge. The **first tap on a full generator starts a fixed refresh timer** (20 min at Lv1). When the timer ends, the generator returns to **full capacity, however many charges are left**. Further taps during the cycle don't restart or extend the timer. If charges reach 0 before the timer ends, the generator *waits* for the end of the cycle. The timer can be skipped for Moonpetals (**1 Moonpetal per started 5 minutes left**, minimum 1, so a fresh 20-minute cycle costs 4; roadmap D34), or the remaining time halved once per cycle by a rewarded ad.
   - *Why not refill only when empty (v0.2 rule):* the 7-day simulation (§5.1) showed that a session ending with a few charges left (for example 8 + 9) made the next session, hours later, start with only those 17 charges, because the timer never started. Players would be punished for not emptying generators, and every session after the first stalled.
 - **Generator states and UI language.** This is a *refresh cycle*, not a conventional "empty, then recharging" generator, and the UI must say so consistently:
 
@@ -228,8 +228,8 @@ The Phase 4 balance simulator measures one number: **extra taps enabled by skipp
 - **Sap** is the energy currency. **Cap 100.** It regenerates **+1 every 2 minutes** (full from empty in exactly 3 h 20 min) while below the cap. Regeneration continues offline and is calculated from UTC timestamps.
 - **Exact timer rule:** the regen timer starts when Sap drops below the cap (spending at time *t* schedules the next +1 at *t* + 120 s) and stops when Sap reaches the cap. Time spent at or above the cap generates nothing. A partial interval isn't kept when the cap is reached.
 - Rewards (level-up, daily gift, chests, ads, purchases) can push Sap **above the cap**. The cap only limits regeneration.
-- **Level-up** fully refills Sap (to at least the cap).
-- **Daily Gift:** a 7-day calendar (Sap, Glimmer, generator sprouts, and a Moonpetals bundle on day 7). Missing a day doesn't reset progress, it just pauses the calendar.
+- **Level-up** fully refills Sap (to at least the cap). *Implemented in Phase 4 with player levels and XP (roadmap D33).*
+- **Daily Gift:** a 7-day calendar, one claim per **local** day. Missing a day doesn't reset progress, it just pauses the calendar; after day 7 it starts again. Contents (roadmap D35): day 1 30 Sap · day 2 25 Glimmer · day 3 a Seed Pouch sprout · day 4 50 Sap · day 5 a Mystery Acorn · day 6 a Moonwell Spring sprout · day 7 20 Moonpetals + 50 Sap. Item rewards go to the board (nearest free cell to the bottom-centre) or the satchel; if neither has room, nothing is granted and the gift can be claimed after making room.
 - **Rewarded ad** *(optional, Phase 8)*: +25 Sap, max 5 per day. It is never required and never shown automatically.
 - **Refill with Moonpetals:** +100 Sap. The cost rises each time within a day (10 → 20 → 40 …) and resets at local midnight.
 - **Clock safety:** negative time deltas are ignored, and regeneration can never exceed what the elapsed time allows. The cap prevents abuse from clock skipping forward.

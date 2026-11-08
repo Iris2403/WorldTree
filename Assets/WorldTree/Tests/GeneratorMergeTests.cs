@@ -87,13 +87,57 @@ namespace WorldTree.Tests
         [Test]
         public void MaxLevelGeneratorsSwap()
         {
-            // Moonwell Spring has a single level in Phase 1, so it is at max level.
-            Put(_s, 0, 0, PrototypeContent.Moonwell1);
-            Put(_s, 1, 0, PrototypeContent.Moonwell1);
+            Put(_s, 0, 0, "gen.moonwell_spring.5");
+            Put(_s, 1, 0, "gen.moonwell_spring.5");
             Assert.AreEqual(MoveKind.Swap, _s.DragItem(P(0, 0), P(1, 0)).Kind);
-            Put(_s, 2, 0, PrototypeContent.SeedPouch2);
-            Put(_s, 3, 0, PrototypeContent.SeedPouch2);
-            Assert.AreEqual(MoveKind.Swap, _s.DragItem(P(2, 0), P(3, 0)).Kind);
+        }
+
+        [TestCase("gen.seed_pouch")]
+        [TestCase("gen.moonwell_spring")]
+        [TestCase("gen.woodwright_stump")]
+        public void GeneratorsUpgradeThroughLevelOneToFive(string prefix)
+        {
+            for (int level = 1; level < PrototypeContent.MaxGeneratorLevel; level++)
+            {
+                Put(_s, 0, 0, prefix + "." + level);
+                Put(_s, 1, 0, prefix + "." + level);
+                Assert.AreEqual(MoveKind.Merge, _s.DragItem(P(0, 0), P(1, 0)).Kind, "level " + level);
+                var result = _s.Board.GetItem(P(1, 0));
+                Assert.AreEqual(prefix + "." + (level + 1), result.ItemId);
+                var def = TestContent.Catalog.GetItem(result.ItemId).Generator;
+                Assert.AreEqual(def.Capacity, result.Generator.Charges, "full after upgrade");
+                _s.Board.SetItem(P(1, 0), null);
+            }
+        }
+
+        [Test]
+        public void GeneratorTableMatchesGdd()
+        {
+            int[] capacity = { 60, 66, 72, 80, 90 };
+            int[] minutes = { 20, 18, 16, 14, 12 };
+            for (int level = 1; level <= 5; level++)
+            {
+                var g = TestContent.Catalog.GetItem("gen.seed_pouch." + level).Generator;
+                Assert.AreEqual(capacity[level - 1], g.Capacity);
+                Assert.AreEqual(minutes[level - 1], g.RefreshDuration.TotalMinutes);
+            }
+            // Higher levels drop better items: Lv5 can drop a Nature L4.
+            CollectionAssert.Contains(ItemIds(TestContent.Catalog.GetItem("gen.seed_pouch.5").Generator.Drops), "item.nature.04");
+        }
+
+        [Test]
+        public void MysteryAcornsNeverMerge()
+        {
+            Put(_s, 0, 0, PrototypeContent.MysteryAcorn);
+            Put(_s, 1, 0, PrototypeContent.MysteryAcorn);
+            Assert.AreEqual(MoveKind.Swap, _s.DragItem(P(0, 0), P(1, 0)).Kind);
+        }
+
+        private static System.Collections.Generic.List<string> ItemIds(Core.Items.DropTable table)
+        {
+            var ids = new System.Collections.Generic.List<string>();
+            foreach (var e in table.Entries) ids.Add(e.ItemId);
+            return ids;
         }
     }
 }

@@ -68,6 +68,10 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D29 | Phase 2 content | Nature and Water extended to 8 levels; new Craft chain (6 levels) with the Woodwright's Stump; the starting board gains a Withered row and two Sealed rows that hide the Stump | Phase 2 needs full chain data and a board that exercises the blight rules. IDs are unchanged, so Phase 1 saves still load |
 | D30 | Freeing Withered cells | **Supersedes part of GDD §3.3 rule 2.** A Withered item is freed only by dropping a matching item onto it; a merge next to it no longer frees it. A Withered generator is still freed by a merge next to it. Sealed cells still turn Withered when a neighbour is freed. The validator rejects locked max-level items, but allows locked items whose chain has no generator on the board yet | User feedback from play-testing Phase 2: merging beside blighted items freed them too easily. Generators are the exception because a matching generator is rarely available. Chains may become obtainable in later levels |
 | D31 | Small-centre start | The starting board opens only the 3 × 3 centre (Seed Pouch in the middle, 8 free places). A Withered ring surrounds it, with the Moonwell Spring next to the centre; the rest is Sealed. The 120-charge rule counts Withered generators next to an Open cell | User request: start small with one generator and expand by merging. A test with a simple automated player opens the whole board in about 90–100 actions (22–28 taps) on three seeds and frees the Moonwell Spring within the first few actions |
+| D32 | Moonpetals in Phase 3 | Moonpetals are added to the wallet now. Debug overlay grants them for testing; real sources (day-7 gift now, level-ups and purchases later) | Refresh skips and Sap refills (Phase 3 scope) cost Moonpetals, which the roadmap had placed in Phase 4. Found while implementing Phase 3 |
+| D33 | Level-up Sap refill | Moves to Phase 4 | It needs player levels and XP, which are Phase 4 |
+| D34 | Skip cost | 1 Moonpetal per started 5 minutes of remaining refresh time, minimum 1 (a fresh Lv1 cycle costs 4) | The GDD named the mechanic without a price. Simple, proportional, and cheap enough to try in the prototype; tuned in Phase 4 |
+| D35 | Daily Gift contents and ads | 7-day calendar per GDD §5 (contents listed there), one claim per local day via a new `IClock.LocalUtcOffset`. Ad rewards (refresh speed-up, +25 Sap up to 5/day) are implemented in Core behind an `IAdService` that is disabled until Phase 8; a debug "fake ads" switch tests them | Daily limits reset at local midnight (GDD §5), which needs local time. Ads are Phase 8, but their game rules are cheap to finish and test now |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -94,7 +98,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [x] Device Simulator (iPhone SE and a 20:9 Android): the board fits in the safe area, and touch drag lifts the item above the finger
 - [ ] Test Runner → EditMode: all `WorldTree.Tests` tests pass
 
-## Phase 2: Merge board and item progression 🔄
+## Phase 2: Merge board and item progression ✅
 
 **Deliverables:** Withered and Sealed cells with cleansing, generator UI states from GDD §4.1 (Ready / Refreshing / Waiting for refresh), full chain data (Nature, Water, Craft), the Satchel, Sell + Undo, the Grove Codex with first-discovery rewards, merge highlight on drag, item info panel, `ObjectPool` item views, tweener v1, data validator menu.
 
@@ -104,7 +108,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Core: blight rules (cleansing merge, cleanse + reveal, one step, ordered events), layout validator, Glimmer wallet, Codex with first-discovery rewards, 4-slot Satchel, Sell + 5 s Undo, 8-level Nature/Water, Craft chain and Woodwright's Stump, new starting board, saves (Phase 1 saves still load)
 - ✅ Tests: 102 passing via `dotnet test tools/CoreTests` (43 new). Cleansing tests verified to fail against a cascading-reveal mutation
 - ✅ Unity layer written: blight and Sealed covers, merge hints while dragging, generator charge / countdown line and dimming while waiting, bottom bar (Sell, Store, Undo, Satchel, Codex), Satchel and Codex panels, discovery messages, drag onto Satchel to store, *WorldTree → Validate Data*, *WorldTree → Setup → Update Content Assets to Code Defaults*. Type-checked against Unity API stubs only. **Not yet run in Unity**
-- ⬜ Unity Editor validation (checklist below)
+- ✅ Unity Editor validation: play-tested by the user (blight rules incl. D30, small-centre start D31, satchel, selling and undo, Codex, generator status, save/restore)
 
 **⚠ Editor validation checklist:**
 - [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → choose **Update**. Then *WorldTree → Validate Data* reports "All data is valid"
@@ -121,13 +125,27 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Stop and restart Play: blight state, Satchel, Glimmer and Codex are restored
 - [ ] Buttons don't trigger board taps underneath; the board still fits above the bottom bar in Device Simulator
 
-## Phase 3: Generators and energy ⬜
+## Phase 3: Generators and energy 🔄
 
-**Deliverables:** multiple generators, charges and first-tap refresh, generator merging and upgrades (Lv1–5), drop tables, consumable generators, full energy rules (offline regen, over-cap, level-up refill), Daily Gift, `IAdService` no-op hook, Moonpetal skip and refill.
+**Deliverables:** multiple generators, charges and first-tap refresh, generator merging and upgrades (Lv1–5), drop tables, consumable generators, full energy rules (offline regen, over-cap; level-up refill moved to Phase 4, D33), Daily Gift, `IAdService` no-op hook, Moonpetal skip and refill.
 
 **Acceptance:** fake-clock tests for regen and first-tap refresh across offline gaps, clock-rewind safety, and the board-full guard.
 
-**⚠ Editor validation:** generator ready and cooldown visuals, HUD timers.
+**Status:**
+- ✅ Core: Seed Pouch, Moonwell Spring and Woodwright's Stump at levels 1–5 (GDD §4.2 table), Mystery Acorn consumable generator, Moonpetals, refresh skip, Sap refill with escalating daily cost, rewarded-ad speed-up and ad Sap (daily cap), Daily Gift, local-day resets, saves (older saves still load)
+- ✅ Tests: 136 passing via `dotnet test tools/CoreTests` (24 new)
+- ✅ Unity layer written: Moonpetals in the HUD, Skip and ad speed-up buttons for a selected refreshing generator, Gift panel, Sap+ panel (refill, watch ad), Mystery Acorn visuals, debug buttons (+20 Moonpetals, allow Daily Gift again, fake ads on/off). Type-checked against Unity API stubs only. **Not yet run in Unity**
+- ⬜ Unity Editor validation (checklist below)
+
+**⚠ Editor validation checklist:**
+- [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → **Update**, then *WorldTree → Validate Data* is clean
+- [ ] Two Seed Pouch G1 merge into G2, and so on up to G5; each upgrade is full and shows more charges
+- [ ] Gift button shows "Gift!" once per day; the panel lists 7 days; Claim grants the reward. Debug → *Allow Daily Gift again* steps through: day 3 places a Seed Pouch sprout, day 5 a Mystery Acorn (round "?"), day 7 gives 20 Moonpetals
+- [ ] The Mystery Acorn shows taps left, gives 8 items, then disappears; it can be sold and never merges
+- [ ] Select a refreshing generator: **Skip (N MP)** appears; with enough Moonpetals it becomes full at once
+- [ ] Sap+ panel: refill gives +100 Sap; the next refill costs double
+- [ ] Debug → *Fake ads: ON*: "Ad: ½ time" appears for a refreshing generator (once per cycle), and the Sap+ panel shows "Watch ad" (5 per day)
+- [ ] Stop and restart Play: Moonpetals, gift progress, refill cost and ad counts are kept
 
 ## Phase 4: Orders and rewards ⬜
 

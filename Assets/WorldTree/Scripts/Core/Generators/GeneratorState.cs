@@ -19,5 +19,8 @@ namespace WorldTree.Core.Generators
 
         /// <summary>End of the running refresh cycle, or null when the generator is full and idle.</summary>
         public DateTime? RefreshEndsUtc { get; internal set; }
+
+        /// <summary>The rewarded-ad speed-up was used in the current cycle (allowed once per cycle, GDD §4.1).</summary>
+        public bool AdSpeedUpUsed { get; internal set; }
     }
 }

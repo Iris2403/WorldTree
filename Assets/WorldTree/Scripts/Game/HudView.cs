@@ -36,6 +36,16 @@ namespace WorldTree.Game
         private Button _storeButton;
         private Button _undoButton;
         private Button _satchelButton;
+        private Button _skipButton;
+        private Button _adSpeedButton;
+        private Button _giftButton;
+        private RectTransform _giftPanel;
+        private TextMeshProUGUI _giftText;
+        private Button _claimButton;
+        private RectTransform _energyPanel;
+        private TextMeshProUGUI _energyText;
+        private Button _refillButton;
+        private Button _adSapButton;
         private RectTransform _satchelPanel;
         private Button[] _slotButtons;
         private RectTransform _codexPanel;
@@ -46,8 +56,13 @@ namespace WorldTree.Game
         private float _nextRefresh;
         private Rect _appliedSafeArea;
 
-        /// <summary>True while the Satchel or Codex panel is open; the board ignores input then.</summary>
-        public bool IsPanelOpen => _satchelPanel.gameObject.activeSelf || _codexPanel.gameObject.activeSelf;
+        /// <summary>Rewarded-ad provider. <see cref="NoAdService"/> until Phase 8, so ad buttons stay hidden.</summary>
+        public IAdService Ads { get; set; } = new NoAdService();
+
+        /// <summary>True while any panel is open; the board ignores input then.</summary>
+        public bool IsPanelOpen =>
+            _satchelPanel.gameObject.activeSelf || _codexPanel.gameObject.activeSelf ||
+            _giftPanel.gameObject.activeSelf || _energyPanel.gameObject.activeSelf;
 
         public static HudView Create(Transform parent)
         {
@@ -85,8 +100,12 @@ namespace WorldTree.Game
             hud._sellButton = NewButton("Sell", hud._bottomBar, "Sell", hud.OnSell);
             hud._storeButton = NewButton("Store", hud._bottomBar, "Store", hud.OnStore);
             hud._undoButton = NewButton("Undo", hud._bottomBar, "Undo", hud.OnUndo);
+            hud._skipButton = NewButton("Skip", hud._bottomBar, "Skip", hud.OnSkip);
+            hud._adSpeedButton = NewButton("AdSpeed", hud._bottomBar, "Ad: ½ time", hud.OnAdSpeedUp);
             hud._satchelButton = NewButton("Satchel", hud._bottomBar, "Satchel", hud.ToggleSatchel);
             NewButton("Codex", hud._bottomBar, "Codex", hud.ToggleCodex);
+            hud._giftButton = NewButton("Gift", hud._bottomBar, "Gift", hud.ToggleGift);
+            NewButton("Sap", hud._bottomBar, "Sap+", hud.ToggleEnergy);
 
             hud._message = NewText("Message", hud._safeArea,
                 new Vector2(0.04f, BoardCameraFitter.BottomReserved * 0.84f), new Vector2(0.96f, BoardCameraFitter.BottomReserved * 1.25f),
@@ -121,6 +140,28 @@ namespace WorldTree.Game
             SetAnchors((RectTransform)codexClose.transform, new Vector2(0.77f, 0.92f), new Vector2(0.97f, 0.985f));
             hud._codexText = NewText("Entries", hud._codexPanel, new Vector2(0.04f, 0.03f), new Vector2(0.96f, 0.9f), 34, TextAlignmentOptions.TopLeft);
             hud._codexPanel.gameObject.SetActive(false);
+
+            // Daily Gift panel
+            hud._giftPanel = NewRect("GiftPanel", hud._safeArea, new Vector2(0.06f, 0.25f), new Vector2(0.94f, 0.75f));
+            AddImage(hud._giftPanel, PanelColor, true);
+            var giftClose = NewButton("Close", hud._giftPanel, "Close", hud.ToggleGift);
+            SetAnchors((RectTransform)giftClose.transform, new Vector2(0.77f, 0.88f), new Vector2(0.97f, 0.98f));
+            hud._giftText = NewText("Days", hud._giftPanel, new Vector2(0.05f, 0.2f), new Vector2(0.95f, 0.86f), 38, TextAlignmentOptions.TopLeft);
+            hud._claimButton = NewButton("Claim", hud._giftPanel, "Claim", hud.OnClaimGift);
+            SetAnchors((RectTransform)hud._claimButton.transform, new Vector2(0.25f, 0.04f), new Vector2(0.75f, 0.16f));
+            hud._giftPanel.gameObject.SetActive(false);
+
+            // Sap panel: Moonpetal refill and rewarded-ad Sap
+            hud._energyPanel = NewRect("SapPanel", hud._safeArea, new Vector2(0.06f, 0.32f), new Vector2(0.94f, 0.6f));
+            AddImage(hud._energyPanel, PanelColor, true);
+            var energyClose = NewButton("Close", hud._energyPanel, "Close", hud.ToggleEnergy);
+            SetAnchors((RectTransform)energyClose.transform, new Vector2(0.77f, 0.78f), new Vector2(0.97f, 0.96f));
+            hud._energyText = NewText("Info", hud._energyPanel, new Vector2(0.05f, 0.5f), new Vector2(0.75f, 0.95f), 38, TextAlignmentOptions.TopLeft);
+            hud._refillButton = NewButton("Refill", hud._energyPanel, "Refill", hud.OnRefillSap);
+            SetAnchors((RectTransform)hud._refillButton.transform, new Vector2(0.05f, 0.08f), new Vector2(0.48f, 0.42f));
+            hud._adSapButton = NewButton("AdSap", hud._energyPanel, "Watch ad", hud.OnAdSap);
+            SetAnchors((RectTransform)hud._adSapButton.transform, new Vector2(0.52f, 0.08f), new Vector2(0.95f, 0.42f));
+            hud._energyPanel.gameObject.SetActive(false);
             return hud;
         }
 
@@ -173,10 +214,12 @@ namespace WorldTree.Game
             int sap = _session.Sap;
             var next = _session.Energy.NextTickUtc;
             _sap.text = "Sap " + sap + " / " + _session.Energy.Config.Cap + (next.HasValue ? "   +1 in " + FormatTime(next.Value - now) : "   Full");
-            _glimmer.text = "Glimmer " + _session.Wallet.Glimmer;
+            _glimmer.text = "Glimmer " + _session.Wallet.Glimmer + "   Moonpetals " + _session.Wallet.Moonpetals;
             _selection.text = DescribeSelection(now);
             RefreshButtons();
             if (_satchelPanel.gameObject.activeSelf) RefreshSatchel(now);
+            if (_giftPanel.gameObject.activeSelf) RefreshGift();
+            if (_energyPanel.gameObject.activeSelf) RefreshEnergy();
         }
 
         private void RefreshButtons()
@@ -188,12 +231,22 @@ namespace WorldTree.Game
                 item = _session.Board.GetItem(_selected.Value);
                 open = _session.Board.GetState(_selected.Value) == CellState.Open;
             }
-            bool sellable = item != null && open && !_session.Catalog.GetItem(item.ItemId).IsGenerator;
+            var itemDef = item != null ? _session.Catalog.GetItem(item.ItemId) : null;
+            bool sellable = item != null && open && (!itemDef.IsGenerator || itemDef.Generator.IsConsumable);
             SetButton(_sellButton, sellable, sellable ? "Sell +" + _session.Catalog.GetItem(item.ItemId).SellValue : null);
             SetButton(_storeButton, item != null && open, null);
             double undo = _session.SellUndoSecondsLeft;
             SetButton(_undoButton, undo > 0, "Undo (" + Math.Ceiling(undo) + ")");
             SetButton(_satchelButton, true, "Satchel " + _session.Satchel.Count + "/" + _session.Satchel.Capacity);
+
+            // Generator actions for a selected, refreshing permanent generator (GDD §4.1).
+            bool refreshing = open && itemDef != null && itemDef.IsGenerator && !itemDef.Generator.IsConsumable
+                              && _session.GetGeneratorState(_selected.Value).RefreshEndsUtc.HasValue;
+            int skipCost = refreshing ? _session.SkipCostAt(_selected.Value) : 0;
+            SetButton(_skipButton, skipCost > 0, "Skip (" + skipCost + " MP)");
+            bool adSpeed = refreshing && Ads.IsRewardedReady && !_session.GetGeneratorState(_selected.Value).AdSpeedUpUsed;
+            SetButton(_adSpeedButton, adSpeed, null);
+            SetButton(_giftButton, true, _session.CanClaimDailyGift ? "Gift!" : "Gift");
         }
 
         private string DescribeSelection(DateTime now)
@@ -212,6 +265,7 @@ namespace WorldTree.Game
                     : name + " (Withered). Drop a matching item on it to free it.";
 
             if (!def.IsGenerator) return name + " · Lv " + def.Level;
+            if (def.Generator.IsConsumable) return name + " · " + _session.GetGeneratorState(p).Charges + " taps left, then it vanishes";
             var g = _session.GetGeneratorState(p);
             string charges = g.Charges + " / " + def.Generator.Capacity;
             if (g.RefreshEndsUtc == null) return name + " Lv " + def.Level + " · " + charges + " · Ready";
@@ -284,6 +338,118 @@ namespace WorldTree.Game
         {
             _satchelPanel.gameObject.SetActive(false);
             _codexPanel.gameObject.SetActive(false);
+            _giftPanel.gameObject.SetActive(false);
+            _energyPanel.gameObject.SetActive(false);
+        }
+
+        private void OnSkip()
+        {
+            if (!_selected.HasValue) return;
+            if (_session.SkipRefresh(_selected.Value) == SkipResult.NotEnoughMoonpetals) ShowMessage("Not enough Moonpetals");
+            _nextRefresh = 0f;
+        }
+
+        private void OnAdSpeedUp()
+        {
+            if (!_selected.HasValue || !Ads.IsRewardedReady) return;
+            var cell = _selected.Value;
+            Ads.ShowRewarded(watched =>
+            {
+                if (watched && _session.ApplyAdSpeedUp(cell) == PurchaseResult.Done) ShowMessage("Refresh time halved");
+                _nextRefresh = 0f;
+            });
+        }
+
+        private void ToggleGift()
+        {
+            bool show = !_giftPanel.gameObject.activeSelf;
+            CloseAllPanels();
+            _giftPanel.gameObject.SetActive(show);
+            if (show) RefreshGift();
+        }
+
+        private void OnClaimGift()
+        {
+            switch (_session.ClaimDailyGift())
+            {
+                case ClaimResult.Claimed: ShowMessage("Daily Gift claimed!"); break;
+                case ClaimResult.NoRoom: ShowMessage("Make room on the board or in the satchel first"); break;
+                case ClaimResult.AlreadyClaimedToday: ShowMessage("Come back tomorrow for the next gift"); break;
+            }
+            RefreshGift();
+        }
+
+        private void RefreshGift()
+        {
+            var sb = new StringBuilder("<b>Daily Gift</b>  (one per day; missing a day doesn't reset it)\n\n");
+            for (int day = 0; day < Core.Economy.DailyGift.Days; day++)
+            {
+                bool next = day == _session.DailyGift.NextDayIndex;
+                sb.Append(next ? "<b>▶ " : "   ").Append("Day ").Append(day + 1).Append(": ");
+                var rewards = Core.Economy.DailyGift.RewardsFor(day);
+                for (int i = 0; i < rewards.Count; i++)
+                {
+                    if (i > 0) sb.Append(" + ");
+                    sb.Append(Describe(rewards[i]));
+                }
+                sb.Append(next ? "</b>\n" : "\n");
+            }
+            _giftText.text = sb.ToString();
+            bool can = _session.CanClaimDailyGift;
+            _claimButton.interactable = can;
+            _claimButton.GetComponentInChildren<TextMeshProUGUI>().text = can ? "Claim" : "Claimed today";
+        }
+
+        private string Describe(Core.Economy.Reward reward)
+        {
+            switch (reward.Kind)
+            {
+                case Core.Economy.RewardKind.Sap: return reward.Amount + " Sap";
+                case Core.Economy.RewardKind.Glimmer: return reward.Amount + " Glimmer";
+                case Core.Economy.RewardKind.Moonpetals: return reward.Amount + " Moonpetals";
+                default: return DisplayName(reward.ItemId);
+            }
+        }
+
+        private void ToggleEnergy()
+        {
+            bool show = !_energyPanel.gameObject.activeSelf;
+            CloseAllPanels();
+            _energyPanel.gameObject.SetActive(show);
+            if (show) RefreshEnergy();
+        }
+
+        private void RefreshEnergy()
+        {
+            _energyText.text = "<b>Need more Sap?</b>\nSap " + _session.Sap + " / " + _session.Energy.Config.Cap +
+                               "   ·   Moonpetals " + _session.Wallet.Moonpetals;
+            _refillButton.GetComponentInChildren<TextMeshProUGUI>().text =
+                "+" + Core.Economy.EconomyRules.SapRefillAmount + " Sap\nfor " + _session.SapRefillCost + " Moonpetals";
+            bool ads = Ads.IsRewardedReady;
+            _adSapButton.gameObject.SetActive(ads);
+            if (ads)
+            {
+                int left = _session.AdSapLeftToday;
+                _adSapButton.interactable = left > 0;
+                _adSapButton.GetComponentInChildren<TextMeshProUGUI>().text =
+                    "Watch ad: +" + Core.Economy.EconomyRules.AdSapAmount + " Sap\n(" + left + " left today)";
+            }
+        }
+
+        private void OnRefillSap()
+        {
+            if (_session.RefillSap() == PurchaseResult.NotEnoughMoonpetals) ShowMessage("Not enough Moonpetals");
+            RefreshEnergy();
+        }
+
+        private void OnAdSap()
+        {
+            if (!Ads.IsRewardedReady) return;
+            Ads.ShowRewarded(watched =>
+            {
+                if (watched && _session.GrantAdSap() == PurchaseResult.DailyLimitReached) ShowMessage("No more ad rewards today");
+                RefreshEnergy();
+            });
         }
 
         private void RefreshSatchel(DateTime now)

@@ -20,16 +20,20 @@ namespace WorldTree.Data
         [SerializeField, Min(1)] private int capacity = 60;
         [SerializeField, Min(0.01f)] private float refreshMinutes = 20f;
         [SerializeField, Min(0)] private int sapCost = 1;
+        [Tooltip("Consumable (for example the Mystery Acorn): Capacity is the number of taps, it never refreshes and vanishes when empty.")]
+        [SerializeField] private bool consumable;
         [SerializeField] private List<Drop> drops = new List<Drop>();
 
         public string ItemId => itemId;
         public int Capacity => capacity;
         public float RefreshMinutes => refreshMinutes;
         public int SapCost => sapCost;
+        public bool Consumable => consumable;
         public IReadOnlyList<Drop> Drops => drops;
 
-        public void Configure(string id, int chargeCapacity, float minutes, int cost, List<Drop> dropList)
+        public void Configure(string id, int chargeCapacity, float minutes, int cost, List<Drop> dropList, bool isConsumable = false)
         {
+            consumable = isConsumable;
             itemId = id;
             capacity = chargeCapacity;
             refreshMinutes = minutes;
