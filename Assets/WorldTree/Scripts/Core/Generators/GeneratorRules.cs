@@ -15,7 +15,7 @@ namespace WorldTree.Core.Generators
         /// <summary>Applies an elapsed refresh and clamps timers distorted by the device clock moving backwards.</summary>
         public static void Refresh(GeneratorState state, GeneratorDef def, DateTime nowUtc)
         {
-            if (state.RefreshEndsUtc == null) return;
+            if (def.IsConsumable || state.RefreshEndsUtc == null) return;
             DateTime end = state.RefreshEndsUtc.Value;
 
             // Clock moved backwards: never wait longer than one full cycle (never faster, never stuck).
@@ -29,6 +29,7 @@ namespace WorldTree.Core.Generators
             {
                 state.Charges = def.Capacity;
                 state.RefreshEndsUtc = null;
+                state.AdSpeedUpUsed = false;
             }
         }
 
@@ -36,15 +37,32 @@ namespace WorldTree.Core.Generators
         public static void ConsumeCharge(GeneratorState state, GeneratorDef def, DateTime nowUtc)
         {
             if (state.Charges <= 0) throw new InvalidOperationException("Generator has no charges.");
-            if (state.RefreshEndsUtc == null) state.RefreshEndsUtc = nowUtc + def.RefreshDuration;
+            if (!def.IsConsumable && state.RefreshEndsUtc == null) state.RefreshEndsUtc = nowUtc + def.RefreshDuration;
             state.Charges--;
         }
 
-        /// <summary>Debug helper: completes any running cycle immediately.</summary>
+        /// <summary>Completes a running cycle immediately (Moonpetal skip, debug). Consumables are never refilled.</summary>
         public static void ForceRefresh(GeneratorState state, GeneratorDef def)
         {
+            if (def.IsConsumable) return;
             state.Charges = def.Capacity;
             state.RefreshEndsUtc = null;
+            state.AdSpeedUpUsed = false;
+        }
+
+        /// <summary>Remaining time of the running cycle, or zero when none is running.</summary>
+        public static TimeSpan Remaining(GeneratorState state, DateTime nowUtc) =>
+            state.RefreshEndsUtc.HasValue && state.RefreshEndsUtc.Value > nowUtc ? state.RefreshEndsUtc.Value - nowUtc : TimeSpan.Zero;
+
+        /// <summary>Rewarded-ad speed-up: halves the remaining time, once per cycle (GDD §4.1).</summary>
+        public static bool TryAdSpeedUp(GeneratorState state, GeneratorDef def, DateTime nowUtc)
+        {
+            if (def.IsConsumable || state.AdSpeedUpUsed) return false;
+            var remaining = Remaining(state, nowUtc);
+            if (remaining <= TimeSpan.Zero) return false;
+            state.RefreshEndsUtc = nowUtc + TimeSpan.FromTicks(remaining.Ticks / 2);
+            state.AdSpeedUpUsed = true;
+            return true;
         }
     }
 }

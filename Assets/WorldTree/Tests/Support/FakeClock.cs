@@ -11,6 +11,7 @@ namespace WorldTree.Tests.Support
         }
 
         public DateTime UtcNow { get; set; }
+        public TimeSpan LocalUtcOffset { get; set; } = TimeSpan.Zero;
 
         public static FakeClock AtNoon() => new FakeClock(new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc));
 

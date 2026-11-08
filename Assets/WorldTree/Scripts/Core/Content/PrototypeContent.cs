@@ -19,11 +19,16 @@ namespace WorldTree.Core.Content
         public const string MoonwellChain = "chain.gen.moonwell_spring";
         public const string CraftChain = "chain.craft";
         public const string StumpChain = "chain.gen.woodwright_stump";
+        public const string AcornChain = "chain.gen.mystery_acorn";
 
         public const string SeedPouch1 = "gen.seed_pouch.1";
         public const string SeedPouch2 = "gen.seed_pouch.2";
         public const string Moonwell1 = "gen.moonwell_spring.1";
         public const string Stump1 = "gen.woodwright_stump.1";
+        public const string MysteryAcorn = "gen.mystery_acorn";
+
+        /// <summary>Taps in a Mystery Acorn before it vanishes (GDD §4.1).</summary>
+        public const int MysteryAcornTaps = 8;
 
         public const int BoardWidth = 7;
         public const int BoardHeight = 9;
@@ -53,15 +58,22 @@ namespace WorldTree.Core.Content
             { "item.craft.04", "Wooden Crate" },
             { "item.craft.05", "Lantern Frame" },
             { "item.craft.06", "Elven Lantern" },
-            { SeedPouch1, "Seed Pouch" },
-            { SeedPouch2, "Seed Pouch" },
-            { Moonwell1, "Moonwell Spring" },
-            { Stump1, "Woodwright's Stump" },
+            { MysteryAcorn, "Mystery Acorn" },
         };
 
         public static EnergyConfig Energy => EnergyConfig.Default;
 
         public static Catalog BuildCatalog() => new Catalog(BuildChains());
+
+        /// <summary>Display name for an ID, including every generator level ("Seed Pouch" for gen.seed_pouch.3).</summary>
+        public static string NameOf(string id)
+        {
+            if (DisplayNames.TryGetValue(id, out var name)) return name;
+            if (id.StartsWith("gen.seed_pouch.", StringComparison.Ordinal)) return "Seed Pouch";
+            if (id.StartsWith("gen.moonwell_spring.", StringComparison.Ordinal)) return "Moonwell Spring";
+            if (id.StartsWith("gen.woodwright_stump.", StringComparison.Ordinal)) return "Woodwright's Stump";
+            return null;
+        }
 
         public static IReadOnlyList<ChainDef> BuildChains()
         {
@@ -70,18 +82,17 @@ namespace WorldTree.Core.Content
                 ItemChain(NatureChain, "item.nature", 8),
                 ItemChain(WaterChain, "item.water", 8),
                 ItemChain(CraftChain, "item.craft", 6),
-                ChainDef.Create(SeedPouchChain, new[]
+                GeneratorChain(SeedPouchChain, "gen.seed_pouch", "item.nature"),
+                GeneratorChain(MoonwellChain, "gen.moonwell_spring", "item.water"),
+                GeneratorChain(StumpChain, "gen.woodwright_stump", "item.craft"),
+                // Consumable: a single level, so it is always "max level" and never merges (GDD §4.3).
+                ChainDef.Create(AcornChain, new[]
                 {
-                    new LevelSpec(SeedPouch1, 0, Generator(60, 20, "item.nature", 80, 18, 2)),
-                    new LevelSpec(SeedPouch2, 0, Generator(66, 18, "item.nature", 70, 25, 5)),
-                }),
-                ChainDef.Create(MoonwellChain, new[]
-                {
-                    new LevelSpec(Moonwell1, 0, Generator(60, 20, "item.water", 80, 18, 2)),
-                }),
-                ChainDef.Create(StumpChain, new[]
-                {
-                    new LevelSpec(Stump1, 0, Generator(60, 20, "item.craft", 80, 18, 2)),
+                    new LevelSpec(MysteryAcorn, 3, GeneratorDef.Consumable(MysteryAcornTaps, 1, new DropTable(new[]
+                    {
+                        new DropEntry("item.nature.01", 30), new DropEntry("item.water.01", 30), new DropEntry("item.craft.01", 20),
+                        new DropEntry("item.nature.02", 8), new DropEntry("item.water.02", 8), new DropEntry("item.craft.02", 4),
+                    }))),
                 }),
             };
         }
@@ -130,6 +141,31 @@ namespace WorldTree.Core.Content
             for (int i = 0; i < levels.Length; i++)
             {
                 levels[i] = new LevelSpec(idPrefix + ".0" + (i + 1), 1 << i);
+            }
+            return ChainDef.Create(chainId, levels);
+        }
+
+        /// <summary>
+        /// GDD §4.2 generator table: capacity, refresh minutes and L1–L4 drop weights per level 1–5.
+        /// </summary>
+        private static readonly int[][] GeneratorTable =
+        {
+            new[] { 60, 20, 80, 18, 2, 0 },
+            new[] { 66, 18, 70, 25, 5, 0 },
+            new[] { 72, 16, 60, 30, 9, 1 },
+            new[] { 80, 14, 50, 35, 13, 2 },
+            new[] { 90, 12, 40, 38, 18, 4 },
+        };
+
+        public const int MaxGeneratorLevel = 5;
+
+        private static ChainDef GeneratorChain(string chainId, string idPrefix, string dropPrefix)
+        {
+            var levels = new LevelSpec[MaxGeneratorLevel];
+            for (int i = 0; i < levels.Length; i++)
+            {
+                var row = GeneratorTable[i];
+                levels[i] = new LevelSpec(idPrefix + "." + (i + 1), 0, Generator(row[0], row[1], dropPrefix, row[2], row[3], row[4], row[5]));
             }
             return ChainDef.Create(chainId, levels);
         }

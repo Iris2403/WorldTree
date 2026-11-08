@@ -27,6 +27,12 @@ namespace WorldTree.Core.Save
                 SapNextTickUtcTicks = session.Energy.NextTickUtc?.Ticks,
                 RandomState = session.RandomState,
                 Glimmer = session.Wallet.Glimmer,
+                Moonpetals = session.Wallet.Moonpetals,
+                DailyGiftNextDay = session.DailyGift.NextDayIndex,
+                DailyGiftLastClaimDay = session.DailyGift.LastClaimDay,
+                LimitsDay = session.DailyLimits.Day,
+                SapRefillsToday = session.DailyLimits.SapRefills,
+                AdSapClaimsToday = session.DailyLimits.AdSapClaims,
             };
             for (int y = 0; y < board.Height; y++)
             {
@@ -44,6 +50,7 @@ namespace WorldTree.Core.Save
                         ItemId = item?.ItemId,
                         Charges = item?.Generator?.Charges,
                         RefreshEndsUtcTicks = item?.Generator?.RefreshEndsUtc?.Ticks,
+                        AdSpeedUpUsed = item?.Generator != null && item.Generator.AdSpeedUpUsed ? true : (bool?)null,
                     });
                 }
             }
@@ -54,6 +61,7 @@ namespace WorldTree.Core.Save
                     ItemId = item.ItemId,
                     Charges = item.Generator?.Charges,
                     RefreshEndsUtcTicks = item.Generator?.RefreshEndsUtc?.Ticks,
+                    AdSpeedUpUsed = item.Generator != null && item.Generator.AdSpeedUpUsed ? true : (bool?)null,
                 });
             }
             var discovered = new List<string>(session.Codex.Discovered);
@@ -85,7 +93,7 @@ namespace WorldTree.Core.Save
                         warnings?.Add("Cell outside the board skipped: " + pos);
                         continue;
                     }
-                    var item = RestoreItem(cell.ItemId, cell.Charges, cell.RefreshEndsUtcTicks, catalog, clock, warnings, pos.ToString());
+                    var item = RestoreItem(cell.ItemId, cell.Charges, cell.RefreshEndsUtcTicks, cell.AdSpeedUpUsed, catalog, clock, warnings, pos.ToString());
                     if (item != null) board.SetItem(pos, item);
 
                     // Locked cells must hold an item (GDD §3.1); otherwise the cell is opened.
@@ -99,7 +107,7 @@ namespace WorldTree.Core.Save
                 foreach (var stored in data.Satchel)
                 {
                     if (stored == null) continue;
-                    var item = RestoreItem(stored.ItemId, stored.Charges, stored.RefreshEndsUtcTicks, catalog, clock, warnings, "satchel");
+                    var item = RestoreItem(stored.ItemId, stored.Charges, stored.RefreshEndsUtcTicks, stored.AdSpeedUpUsed, catalog, clock, warnings, "satchel");
                     if (item != null) satchel.Restore(item);
                 }
             }
@@ -114,10 +122,12 @@ namespace WorldTree.Core.Save
             }
 
             var energy = new EnergyModel(energyConfig, Math.Max(0, data.Sap), FromTicks(data.SapNextTickUtcTicks, warnings));
-            return new GameSession(catalog, board, energy, new Wallet(Math.Max(0, data.Glimmer)), codex, satchel, data.RandomState, clock);
+            return new GameSession(catalog, board, energy, new Wallet(Math.Max(0, data.Glimmer), Math.Max(0, data.Moonpetals)), codex, satchel,
+                data.RandomState, clock, new DailyGift(data.DailyGiftNextDay, data.DailyGiftLastClaimDay),
+                new DailyLimits(data.LimitsDay, data.SapRefillsToday, data.AdSapClaimsToday));
         }
 
-        private static ItemInstance RestoreItem(string itemId, int? charges, long? refreshTicks, ICatalog catalog, IClock clock,
+        private static ItemInstance RestoreItem(string itemId, int? charges, long? refreshTicks, bool? adUsed, ICatalog catalog, IClock clock,
             List<string> warnings, string where)
         {
             if (itemId == null) return null;
@@ -129,11 +139,18 @@ namespace WorldTree.Core.Save
             if (!def.IsGenerator) return new ItemInstance(def.Id);
 
             int restoredCharges = Math.Max(0, Math.Min(def.Generator.Capacity, charges ?? def.Generator.Capacity));
+            if (def.Generator.IsConsumable)
+            {
+                // Consumables never refresh; an empty one would have vanished, so it is dropped.
+                if (restoredCharges == 0) return null;
+                return new ItemInstance(def.Id, new GeneratorState(restoredCharges, null));
+            }
             var refreshEnds = FromTicks(refreshTicks, warnings);
             // A partly used generator must have a running cycle, or it would never refresh.
             if (restoredCharges < def.Generator.Capacity && refreshEnds == null)
                 refreshEnds = clock.UtcNow + def.Generator.RefreshDuration;
-            return new ItemInstance(def.Id, new GeneratorState(restoredCharges, refreshEnds));
+            var state = new GeneratorState(restoredCharges, refreshEnds) { AdSpeedUpUsed = adUsed == true };
+            return new ItemInstance(def.Id, state);
         }
 
         private static DateTime? FromTicks(long? ticks, List<string> warnings)

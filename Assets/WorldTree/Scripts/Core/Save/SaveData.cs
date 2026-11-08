@@ -21,5 +21,13 @@ namespace WorldTree.Core.Save
         public int Glimmer;
         public List<SatchelItemData> Satchel = new List<SatchelItemData>();
         public List<string> Discovered = new List<string>();
+
+        // Phase 3. Absent in older saves, which then load with these defaults.
+        public int Moonpetals;
+        public int DailyGiftNextDay;
+        public int? DailyGiftLastClaimDay;
+        public int? LimitsDay;
+        public int SapRefillsToday;
+        public int AdSapClaimsToday;
     }
 }

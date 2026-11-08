@@ -33,8 +33,10 @@ namespace WorldTree.Core
         }
 
         public GameSession(ICatalog catalog, BoardModel board, EnergyModel energy, Wallet wallet, Codex codex, Satchel satchel,
-            uint randomState, IClock clock)
+            uint randomState, IClock clock, DailyGift dailyGift = null, DailyLimits dailyLimits = null)
         {
+            DailyGift = dailyGift ?? new DailyGift(0, null);
+            DailyLimits = dailyLimits ?? new DailyLimits(null, 0, 0);
             Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             Board = board ?? throw new ArgumentNullException(nameof(board));
             Energy = energy ?? throw new ArgumentNullException(nameof(energy));
@@ -89,8 +91,14 @@ namespace WorldTree.Core
         /// <summary>Raised when the satchel's contents changed.</summary>
         public event Action SatchelChanged;
 
-        /// <summary>Raised when generator states changed outside a tap (debug refresh).</summary>
+        /// <summary>Raised when generator states changed outside a tap (skip, ad speed-up, debug refresh).</summary>
         public event Action GeneratorsChanged;
+
+        /// <summary>Raised when a consumable generator used its last tap and vanished: (cell).</summary>
+        public event Action<GridPos> GeneratorExhausted;
+
+        /// <summary>Raised when a reward item was placed on the board: (cell, item). Rewards that went to the satchel raise <see cref="SatchelChanged"/>.</summary>
+        public event Action<GridPos, ItemInstance> ItemAwarded;
 
         public ICatalog Catalog { get; }
         public BoardModel Board { get; }
@@ -98,6 +106,8 @@ namespace WorldTree.Core
         public Wallet Wallet { get; }
         public Codex Codex { get; }
         public Satchel Satchel { get; }
+        public DailyGift DailyGift { get; }
+        public DailyLimits DailyLimits { get; }
         public SessionStats Stats { get; }
         public long StateVersion { get; private set; }
         public uint RandomState => _random.State;
@@ -123,6 +133,28 @@ namespace WorldTree.Core
                 return left > 0 ? left : 0;
             }
         }
+
+        /// <summary>Moonpetal cost of the next Sap refill today (GDD §5).</summary>
+        public int SapRefillCost
+        {
+            get
+            {
+                DailyLimits.RollOver(LocalDay.Today(_clock));
+                return EconomyRules.SapRefillCost(DailyLimits.SapRefills);
+            }
+        }
+
+        /// <summary>Rewarded-ad Sap claims left today.</summary>
+        public int AdSapLeftToday
+        {
+            get
+            {
+                DailyLimits.RollOver(LocalDay.Today(_clock));
+                return Math.Max(0, EconomyRules.AdSapDailyCap - DailyLimits.AdSapClaims);
+            }
+        }
+
+        public bool CanClaimDailyGift => DailyGift.CanClaim(LocalDay.Today(_clock));
 
         public static GameSession NewGame(ICatalog catalog, BoardLayout layout, EnergyConfig energy, IClock clock, uint seed)
         {
@@ -190,10 +222,14 @@ namespace WorldTree.Core
             var spawned = CreateInstance(Catalog.GetItem(def.Generator.Drops.Roll(_random)));
             Board.SetItem(target, spawned);
 
+            bool exhausted = def.Generator.IsConsumable && item.Generator.Charges == 0;
+            if (exhausted) Board.SetItem(pos, null);
+
             Stats.Taps++;
             Stats.SapSpent += def.Generator.SapCost;
             Changed();
             ItemSpawned?.Invoke(pos, target, spawned);
+            if (exhausted) GeneratorExhausted?.Invoke(pos);
             EnergyChanged?.Invoke();
             DiscoverWithReward(spawned.ItemId);
             return new TapOutcome(TapResult.Spawned, target, spawned.ItemId);
@@ -243,7 +279,8 @@ namespace WorldTree.Core
             if (item == null) return SellResult.Empty;
             if (Board.GetState(pos) != CellState.Open) return SellResult.Locked;
             var def = Catalog.GetItem(item.ItemId);
-            if (def.IsGenerator) return SellResult.NotSellable;
+            // Permanent generators can't be sold; consumable ones can (GDD §3.5).
+            if (def.IsGenerator && !def.Generator.IsConsumable) return SellResult.NotSellable;
 
             Board.SetItem(pos, null);
             Wallet.AddGlimmer(def.SellValue);
@@ -290,6 +327,109 @@ namespace WorldTree.Core
         /// <summary>The generator state of a satchel item with any elapsed refresh applied, or null.</summary>
         public GeneratorState GetSatchelGeneratorState(int slot) =>
             slot >= 0 && slot < Satchel.Count ? RefreshedGenerator(Satchel.Items[slot]) : null;
+
+        /// <summary>Moonpetal cost to finish the running refresh of the generator at <paramref name="pos"/> now, or 0.</summary>
+        public int SkipCostAt(GridPos pos)
+        {
+            var state = GetGeneratorState(pos);
+            return state == null ? 0 : EconomyRules.SkipCost(GeneratorRules.Remaining(state, _clock.UtcNow));
+        }
+
+        /// <summary>Spends Moonpetals to make a refreshing generator full now (GDD §4.1).</summary>
+        public SkipResult SkipRefresh(GridPos pos)
+        {
+            if (!Board.IsInside(pos) || Board.GetItem(pos) == null) return SkipResult.NotAGenerator;
+            if (Board.GetState(pos) != CellState.Open) return SkipResult.Locked;
+            var item = Board.GetItem(pos);
+            var def = Catalog.GetItem(item.ItemId);
+            if (!def.IsGenerator || def.Generator.IsConsumable) return SkipResult.NotAGenerator;
+            var state = GetGeneratorState(pos);
+            int cost = EconomyRules.SkipCost(GeneratorRules.Remaining(state, _clock.UtcNow));
+            if (cost == 0) return SkipResult.NothingToSkip;
+            if (!Wallet.TrySpendMoonpetals(cost)) return SkipResult.NotEnoughMoonpetals;
+
+            GeneratorRules.ForceRefresh(state, def.Generator);
+            Changed();
+            GeneratorsChanged?.Invoke();
+            WalletChanged?.Invoke();
+            return SkipResult.Skipped;
+        }
+
+        /// <summary>
+        /// Rewarded-ad speed-up: halves a generator's remaining refresh time, once per cycle. Call only
+        /// after the ad was watched to the end; Core doesn't know about ads (architecture §4.2).
+        /// </summary>
+        public PurchaseResult ApplyAdSpeedUp(GridPos pos)
+        {
+            var state = GetGeneratorState(pos);
+            if (state == null || Board.GetState(pos) != CellState.Open) return PurchaseResult.NotApplicable;
+            var def = Catalog.GetItem(Board.GetItem(pos).ItemId).Generator;
+            if (!GeneratorRules.TryAdSpeedUp(state, def, _clock.UtcNow)) return PurchaseResult.NotApplicable;
+            Changed();
+            GeneratorsChanged?.Invoke();
+            return PurchaseResult.Done;
+        }
+
+        /// <summary>+100 Sap for Moonpetals; the cost doubles with each refill on the same local day (GDD §5).</summary>
+        public PurchaseResult RefillSap()
+        {
+            int cost = SapRefillCost; // also rolls the daily counters over
+            if (!Wallet.TrySpendMoonpetals(cost)) return PurchaseResult.NotEnoughMoonpetals;
+            DailyLimits.CountSapRefill();
+            Energy.Add(EconomyRules.SapRefillAmount, _clock.UtcNow);
+            Changed();
+            EnergyChanged?.Invoke();
+            WalletChanged?.Invoke();
+            return PurchaseResult.Done;
+        }
+
+        /// <summary>
+        /// +25 Sap for a watched rewarded ad, at most 5 times per local day (GDD §5). Call only after the
+        /// ad was watched to the end.
+        /// </summary>
+        public PurchaseResult GrantAdSap()
+        {
+            if (AdSapLeftToday <= 0) return PurchaseResult.DailyLimitReached; // also rolls the counters over
+            DailyLimits.CountAdSapClaim();
+            Energy.Add(EconomyRules.AdSapAmount, _clock.UtcNow);
+            Changed();
+            EnergyChanged?.Invoke();
+            return PurchaseResult.Done;
+        }
+
+        /// <summary>
+        /// Claims today's Daily Gift (GDD §5). Item rewards go to the nearest empty Open cell from the
+        /// bottom-centre, or to the satchel if the board is full. If they can't all fit, nothing is granted.
+        /// </summary>
+        public ClaimResult ClaimDailyGift()
+        {
+            int today = LocalDay.Today(_clock);
+            if (!DailyGift.CanClaim(today)) return ClaimResult.AlreadyClaimedToday;
+            var rewards = DailyGift.RewardsFor(DailyGift.NextDayIndex);
+
+            int items = 0;
+            foreach (var r in rewards) if (r.Kind == RewardKind.Item) items++;
+            if (items > CountEmptyOpen() + (Satchel.Capacity - Satchel.Count)) return ClaimResult.NoRoom;
+
+            DailyGift.MarkClaimed(today);
+            Changed();
+            foreach (var r in rewards) Grant(r);
+            return ClaimResult.Claimed;
+        }
+
+        public void DebugAddMoonpetals(int amount)
+        {
+            Wallet.AddMoonpetals(amount);
+            Changed();
+            WalletChanged?.Invoke();
+        }
+
+        /// <summary>Debug: lets today's Daily Gift be claimed again, to step through the calendar.</summary>
+        public void DebugAllowDailyGiftAgain()
+        {
+            DailyGift.DebugAllowClaimAgain();
+            Changed();
+        }
 
         public void DebugAddSap(int amount)
         {
@@ -346,6 +486,49 @@ namespace WorldTree.Core
                 var freed = Board.GetItem(c);
                 if (freed != null) DiscoverWithReward(freed.ItemId);
             }
+        }
+
+        private void Grant(Reward reward)
+        {
+            switch (reward.Kind)
+            {
+                case RewardKind.Sap:
+                    Energy.Add(reward.Amount, _clock.UtcNow);
+                    EnergyChanged?.Invoke();
+                    break;
+                case RewardKind.Glimmer:
+                    Wallet.AddGlimmer(reward.Amount);
+                    WalletChanged?.Invoke();
+                    break;
+                case RewardKind.Moonpetals:
+                    Wallet.AddMoonpetals(reward.Amount);
+                    WalletChanged?.Invoke();
+                    break;
+                case RewardKind.Item:
+                    var item = CreateInstance(Catalog.GetItem(reward.ItemId));
+                    var origin = new GridPos(Board.Width / 2, Board.Height - 1);
+                    if (Board.TryFindNearestEmptyOpen(origin, out var cell))
+                    {
+                        Board.SetItem(cell, item);
+                        ItemAwarded?.Invoke(cell, item);
+                    }
+                    else
+                    {
+                        Satchel.Add(item);
+                        SatchelChanged?.Invoke();
+                    }
+                    DiscoverWithReward(item.ItemId);
+                    break;
+            }
+        }
+
+        private int CountEmptyOpen()
+        {
+            int n = 0;
+            for (int y = 0; y < Board.Height; y++)
+                for (int x = 0; x < Board.Width; x++)
+                    if (Board.IsEmptyOpen(new GridPos(x, y))) n++;
+            return n;
         }
 
         private void DiscoverWithReward(string itemId)

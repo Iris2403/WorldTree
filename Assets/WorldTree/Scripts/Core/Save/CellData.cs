@@ -18,5 +18,6 @@ namespace WorldTree.Core.Save
         public string ItemId;
         public int? Charges;
         public long? RefreshEndsUtcTicks;
+        public bool? AdSpeedUpUsed;
     }
 }
