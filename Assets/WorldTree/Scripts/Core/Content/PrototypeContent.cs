@@ -20,12 +20,15 @@ namespace WorldTree.Core.Content
         public const string CraftChain = "chain.craft";
         public const string StumpChain = "chain.gen.woodwright_stump";
         public const string AcornChain = "chain.gen.mystery_acorn";
+        public const string FoodChain = "chain.food";
+        public const string OvenChain = "chain.gen.hearthstone_oven";
 
         public const string SeedPouch1 = "gen.seed_pouch.1";
         public const string SeedPouch2 = "gen.seed_pouch.2";
         public const string Moonwell1 = "gen.moonwell_spring.1";
         public const string Stump1 = "gen.woodwright_stump.1";
         public const string MysteryAcorn = "gen.mystery_acorn";
+        public const string Oven1 = "gen.hearthstone_oven.1";
 
         /// <summary>Taps in a Mystery Acorn before it vanishes (GDD §4.1).</summary>
         public const int MysteryAcornTaps = 8;
@@ -58,6 +61,12 @@ namespace WorldTree.Core.Content
             { "item.craft.04", "Wooden Crate" },
             { "item.craft.05", "Lantern Frame" },
             { "item.craft.06", "Elven Lantern" },
+            { "item.food.01", "Wild Berry" },
+            { "item.food.02", "Berry Bowl" },
+            { "item.food.03", "Berry Tart" },
+            { "item.food.04", "Honey Cake" },
+            { "item.food.05", "Festival Pie" },
+            { "item.food.06", "Festival Feast" },
             { MysteryAcorn, "Mystery Acorn" },
         };
 
@@ -72,6 +81,7 @@ namespace WorldTree.Core.Content
             if (id.StartsWith("gen.seed_pouch.", StringComparison.Ordinal)) return "Seed Pouch";
             if (id.StartsWith("gen.moonwell_spring.", StringComparison.Ordinal)) return "Moonwell Spring";
             if (id.StartsWith("gen.woodwright_stump.", StringComparison.Ordinal)) return "Woodwright's Stump";
+            if (id.StartsWith("gen.hearthstone_oven.", StringComparison.Ordinal)) return "Hearthstone Oven";
             return null;
         }
 
@@ -82,9 +92,11 @@ namespace WorldTree.Core.Content
                 ItemChain(NatureChain, "item.nature", 8),
                 ItemChain(WaterChain, "item.water", 8),
                 ItemChain(CraftChain, "item.craft", 6),
+                ItemChain(FoodChain, "item.food", 6),
                 GeneratorChain(SeedPouchChain, "gen.seed_pouch", "item.nature"),
                 GeneratorChain(MoonwellChain, "gen.moonwell_spring", "item.water"),
                 GeneratorChain(StumpChain, "gen.woodwright_stump", "item.craft"),
+                GeneratorChain(OvenChain, "gen.hearthstone_oven", "item.food"),
                 // Consumable: a single level, so it is always "max level" and never merges (GDD §4.3).
                 ChainDef.Create(AcornChain, new[]
                 {

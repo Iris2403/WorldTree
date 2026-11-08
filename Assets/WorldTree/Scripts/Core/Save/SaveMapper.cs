@@ -10,6 +10,7 @@ using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 using WorldTree.Core.Orders;
 using WorldTree.Core.Progression;
+using WorldTree.Core.Story;
 
 namespace WorldTree.Core.Save
 {
@@ -42,6 +43,10 @@ namespace WorldTree.Core.Save
                 OrdersCompleted = session.Orders.Completed,
                 LastOrderSwapUtcTicks = session.Orders.LastSwapUtc?.Ticks,
             };
+            data.AreaIndex = session.Quest.AreaIndex;
+            data.CompletedTasks.AddRange(Sorted(session.Quest.CompletedTasks));
+            data.StoryFlags.AddRange(Sorted(session.Quest.Flags));
+            data.PendingDialogues.AddRange(session.Quest.PendingDialogues);
             data.RecentOrderChains.AddRange(session.Orders.RecentChains);
             data.DemandWindowChains.AddRange(session.Orders.WindowChains);
             data.DemandWindowValues.AddRange(session.Orders.WindowValues);
@@ -105,7 +110,8 @@ namespace WorldTree.Core.Save
         /// reported in <paramref name="warnings"/> instead of failing the whole load.
         /// Throws <see cref="FormatException"/> if the data is structurally unusable.
         /// </summary>
-        public static GameSession Restore(SaveData data, ICatalog catalog, EnergyConfig energyConfig, IClock clock, List<string> warnings)
+        public static GameSession Restore(SaveData data, ICatalog catalog, EnergyConfig energyConfig, IClock clock, List<string> warnings,
+            StoryCatalog story = null)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
             if (data.Width <= 0 || data.Height <= 0 || data.Width > 64 || data.Height > 64)
@@ -170,7 +176,29 @@ namespace WorldTree.Core.Save
                 new Wallet(Math.Max(0, data.Glimmer), Math.Max(0, data.Moonpetals), Math.Max(0, data.Lifebloom)), codex, satchel,
                 data.RandomState, clock, new DailyGift(data.DailyGiftNextDay, data.DailyGiftLastClaimDay),
                 new DailyLimits(data.LimitsDay, data.SapRefillsToday, data.AdSapClaimsToday),
-                new PlayerProgress(data.Level, data.Xp), orders);
+                new PlayerProgress(data.Level, data.Xp), orders, story, RestoreQuest(data, story, warnings));
+        }
+
+        private static QuestState RestoreQuest(SaveData data, StoryCatalog story, List<string> warnings)
+        {
+            int areas = story?.Areas.Count ?? 0;
+            var quest = new QuestState(Math.Min(Math.Max(0, data.AreaIndex), areas));
+            if (data.CompletedTasks != null) foreach (var t in data.CompletedTasks) if (t != null) quest.CompleteTask(t);
+            if (data.StoryFlags != null) foreach (var f in data.StoryFlags) if (f != null) quest.SetFlag(f);
+            if (data.PendingDialogues != null)
+                foreach (var d in data.PendingDialogues)
+                {
+                    if (story != null && story.TryGetScene(d, out _)) quest.QueueDialogue(d);
+                    else if (d != null) warnings?.Add("Unknown dialogue scene '" + d + "' dropped");
+                }
+            return quest;
+        }
+
+        private static List<string> Sorted(IEnumerable<string> values)
+        {
+            var list = new List<string>(values);
+            list.Sort(StringComparer.Ordinal); // stable output: equal states produce equal files
+            return list;
         }
 
         private static Order RestoreOrder(OrderData od, ICatalog catalog, List<string> warnings)

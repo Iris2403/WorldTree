@@ -5,6 +5,7 @@ using WorldTree.Core.Common;
 using WorldTree.Core.Content;
 using WorldTree.Core.Energy;
 using WorldTree.Core.Items;
+using WorldTree.Core.Story;
 
 namespace WorldTree.Data
 {
@@ -22,6 +23,9 @@ namespace WorldTree.Data
         [SerializeField] private List<GeneratorDefinition> generators = new List<GeneratorDefinition>();
         [SerializeField] private BoardLayoutDefinition startingLayout;
         [SerializeField] private EnergyConfigDefinition energy;
+        [Tooltip("Areas in play order (Phase 5).")]
+        [SerializeField] private List<AreaDefinition> areas = new List<AreaDefinition>();
+        [SerializeField] private List<DialogueDefinition> dialogues = new List<DialogueDefinition>();
 
         public IReadOnlyList<ItemChainDefinition> Chains => chains;
 
@@ -33,6 +37,39 @@ namespace WorldTree.Data
             startingLayout = layout;
             energy = energyConfig;
         }
+
+        /// <summary>Phase 5 story assets. Kept separate from <see cref="Configure"/> so older call sites still work.</summary>
+        public void ConfigureStory(List<AreaDefinition> areaAssets, List<DialogueDefinition> dialogueAssets)
+        {
+            areas = areaAssets;
+            dialogues = dialogueAssets;
+        }
+
+        /// <summary>Builds the Core story catalog, or null when no areas are configured.</summary>
+        public StoryCatalog BuildStory()
+        {
+            if (areas == null || areas.Count == 0) return null;
+            var areaDefs = new List<AreaDef>();
+            foreach (var a in areas)
+            {
+                if (a == null) continue;
+                var tasks = new List<RestorationTask>();
+                foreach (var t in a.Tasks) tasks.Add(new RestorationTask(t.id, t.name, t.lifebloomCost, Empty(t.dialogueId)));
+                areaDefs.Add(new AreaDef(a.AreaId, a.DisplayName, tasks, Empty(a.IntroDialogueId), Empty(a.CompletionDialogueId),
+                    new List<string>(a.RewardItemIds), Empty(a.MemoryLeafId)));
+            }
+            var scenes = new List<DialogueScene>();
+            foreach (var d in dialogues)
+            {
+                if (d == null) continue;
+                var lines = new List<DialogueLine>();
+                foreach (var l in d.Lines) lines.Add(new DialogueLine(l.speaker, l.text));
+                scenes.Add(new DialogueScene(d.SceneId, lines));
+            }
+            return new StoryCatalog(areaDefs, scenes);
+        }
+
+        private static string Empty(string s) => string.IsNullOrEmpty(s) ? null : s;
 
         public Catalog BuildCatalog()
         {

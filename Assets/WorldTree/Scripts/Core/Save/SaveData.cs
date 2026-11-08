@@ -41,5 +41,11 @@ namespace WorldTree.Core.Save
         public List<string> RecentOrderChains = new List<string>();
         public List<string> DemandWindowChains = new List<string>();
         public List<int> DemandWindowValues = new List<int>();
+
+        // Phase 5. Absent in older saves: the first area, nothing restored, no pending scenes.
+        public int AreaIndex;
+        public List<string> CompletedTasks = new List<string>();
+        public List<string> StoryFlags = new List<string>();
+        public List<string> PendingDialogues = new List<string>();
     }
 }

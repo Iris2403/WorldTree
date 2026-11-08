@@ -30,7 +30,7 @@ namespace WorldTree.Tests.Balance
         }
 
         /// <summary>Feeds the real <see cref="OrderGenerator"/> into the simulator (Nature and Water, two Lv1 generators).</summary>
-        private sealed class RealOrders : EnergySimulator.IOrderSource
+        internal sealed class RealOrders : EnergySimulator.IOrderSource
         {
             private readonly List<ChainDef> _chains;
             private readonly XorShiftRandom _random;
@@ -39,6 +39,7 @@ namespace WorldTree.Tests.Balance
             private readonly int _level;
             private readonly int _comfort;
             private int _id;
+            public int LastLifebloom { get; private set; }
 
             public RealOrders(uint seed, int level, int comfort)
             {
@@ -66,6 +67,7 @@ namespace WorldTree.Tests.Balance
                     ProducibleNow = id => charges[Index(id)],
                 }, _random);
                 int value = order.Requirements.Sum(r => OrderRules.Value(TestContent.Catalog.GetItem(r.ItemId)));
+                LastLifebloom = order.Lifebloom;
                 _recent.Add(order.ChainId);
                 if (_recent.Count > OrderRules.MaxConsecutiveSameChain) _recent.RemoveAt(0);
                 _window.Add((order.ChainId, value));
@@ -132,6 +134,28 @@ namespace WorldTree.Tests.Balance
             double share = maxExtraTaps / (double)core.Spent;
             TestContext.WriteLine($"Upper bound: {maxExtraTaps} extra taps per week vs {core.Spent} taps = {share:P1}");
             Assert.LessOrEqual(share, 0.05);
+        }
+
+        /// <summary>
+        /// GDD §5.1 "days per area" (roadmap D39, D40): area costs divided by the Lifebloom a core player
+        /// earns per day with real orders, at the player levels and comfort levels typical of each area.
+        /// Targets: Area 1 in about 2–3 days, Area 2 in about 6 more days (8 cumulative).
+        /// </summary>
+        [TestCase(0, 2, 2, 1.0, 3.0)]
+        [TestCase(0, 3, 2, 1.5, 3.0)]
+        [TestCase(1, 6, 3, 4.5, 8.0)]
+        [TestCase(1, 8, 4, 4.5, 8.0)]
+        public void DaysPerAreaMeetTheTargets(int areaIndex, int playerLevel, int comfort, double minDays, double maxDays)
+        {
+            var area = Core.Content.StoryContent.Build().Areas[areaIndex];
+            long lifebloom = 0;
+            const int seeds = 30;
+            for (uint seed = 1; seed <= seeds; seed++)
+                lifebloom += EnergySimulator.Run(EnergySimulator.Profiles["Core"], new RealOrders(seed, playerLevel, comfort), "order-driven", new[] { 60, 60 }, 4).Lifebloom;
+            double perDay = lifebloom / (double)seeds / EnergySimulator.Days;
+            double days = area.TotalCost / perDay;
+            TestContext.WriteLine($"{area.Name}: {area.TotalCost} Lifebloom at {perDay:0} per day = {days:0.0} days (level {playerLevel}, comfort {comfort})");
+            Assert.That(days, Is.InRange(minDays, maxDays));
         }
     }
 }

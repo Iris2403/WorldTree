@@ -29,6 +29,7 @@ namespace WorldTree.Game
         private Catalog _catalog;
         private BoardLayout _layout;
         private EnergyConfig _energy;
+        private Core.Story.StoryCatalog _story;
         private AtomicSaveStore _store;
 
         private Tweener _tweener;
@@ -70,6 +71,9 @@ namespace WorldTree.Game
                 _catalog = database.BuildCatalog();
                 _layout = database.BuildLayout();
                 _energy = database.BuildEnergyConfig();
+                _story = database.BuildStory();
+                if (_story != null)
+                    foreach (var error in _story.Validate(_catalog)) Debug.LogWarning("[WorldTree] Story: " + error);
             }
             catch (Exception e)
             {
@@ -128,7 +132,7 @@ namespace WorldTree.Game
             try
             {
                 var warnings = new List<string>();
-                var session = SaveMapper.Restore(load.Data, _catalog, _energy, _clock, warnings);
+                var session = SaveMapper.Restore(load.Data, _catalog, _energy, _clock, warnings, _story);
                 foreach (var w in warnings) Debug.LogWarning("[WorldTree] Save: " + w);
                 if (load.Source != LoadSource.Main) Debug.Log("[WorldTree] Save recovered from " + load.Source);
                 return session;
@@ -141,6 +145,6 @@ namespace WorldTree.Game
         }
 
         private GameSession NewGame() =>
-            GameSession.NewGame(_catalog, _layout, _energy, _clock, unchecked((uint)DateTime.UtcNow.Ticks));
+            GameSession.NewGame(_catalog, _layout, _energy, _clock, unchecked((uint)DateTime.UtcNow.Ticks), _story);
     }
 }
