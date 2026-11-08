@@ -8,6 +8,8 @@ using WorldTree.Core.Energy;
 using WorldTree.Core.Generators;
 using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
+using WorldTree.Core.Orders;
+using WorldTree.Core.Progression;
 
 namespace WorldTree.Core.Save
 {
@@ -33,7 +35,35 @@ namespace WorldTree.Core.Save
                 LimitsDay = session.DailyLimits.Day,
                 SapRefillsToday = session.DailyLimits.SapRefills,
                 AdSapClaimsToday = session.DailyLimits.AdSapClaims,
+                Lifebloom = session.Wallet.Lifebloom,
+                Level = session.Progress.Level,
+                Xp = session.Progress.Xp,
+                NextOrderId = session.Orders.NextId,
+                OrdersCompleted = session.Orders.Completed,
+                LastOrderSwapUtcTicks = session.Orders.LastSwapUtc?.Ticks,
             };
+            data.RecentOrderChains.AddRange(session.Orders.RecentChains);
+            data.DemandWindowChains.AddRange(session.Orders.WindowChains);
+            data.DemandWindowValues.AddRange(session.Orders.WindowValues);
+            foreach (var order in session.Orders.Active)
+            {
+                var od = new OrderData
+                {
+                    Id = order.Id,
+                    CustomerId = order.CustomerId,
+                    ChainId = order.ChainId,
+                    Glimmer = order.Glimmer,
+                    Xp = order.Xp,
+                    Lifebloom = order.Lifebloom,
+                    BonusItemId = order.BonusItemId,
+                };
+                foreach (var r in order.Requirements)
+                {
+                    od.Items.Add(r.ItemId);
+                    od.Fulfilled.Add(r.Fulfilled);
+                }
+                data.Orders.Add(od);
+            }
             for (int y = 0; y < board.Height; y++)
             {
                 for (int x = 0; x < board.Width; x++)
@@ -122,9 +152,44 @@ namespace WorldTree.Core.Save
             }
 
             var energy = new EnergyModel(energyConfig, Math.Max(0, data.Sap), FromTicks(data.SapNextTickUtcTicks, warnings));
-            return new GameSession(catalog, board, energy, new Wallet(Math.Max(0, data.Glimmer), Math.Max(0, data.Moonpetals)), codex, satchel,
+            var orders = new OrderBoard(data.NextOrderId, data.OrdersCompleted, FromTicks(data.LastOrderSwapUtcTicks, warnings));
+            if (data.RecentOrderChains != null) foreach (var c in data.RecentOrderChains) if (c != null) orders.RestoreRecentChain(c);
+            if (data.DemandWindowChains != null && data.DemandWindowValues != null)
+                for (int i = 0; i < data.DemandWindowChains.Count && i < data.DemandWindowValues.Count; i++)
+                    if (data.DemandWindowChains[i] != null) orders.RestoreWindowEntry(data.DemandWindowChains[i], Math.Max(0, data.DemandWindowValues[i]));
+            if (data.Orders != null)
+            {
+                foreach (var od in data.Orders)
+                {
+                    var order = RestoreOrder(od, catalog, warnings);
+                    if (order != null) orders.Restore(order);
+                }
+            }
+
+            return new GameSession(catalog, board, energy,
+                new Wallet(Math.Max(0, data.Glimmer), Math.Max(0, data.Moonpetals), Math.Max(0, data.Lifebloom)), codex, satchel,
                 data.RandomState, clock, new DailyGift(data.DailyGiftNextDay, data.DailyGiftLastClaimDay),
-                new DailyLimits(data.LimitsDay, data.SapRefillsToday, data.AdSapClaimsToday));
+                new DailyLimits(data.LimitsDay, data.SapRefillsToday, data.AdSapClaimsToday),
+                new PlayerProgress(data.Level, data.Xp), orders);
+        }
+
+        private static Order RestoreOrder(OrderData od, ICatalog catalog, List<string> warnings)
+        {
+            if (od?.Items == null || od.Items.Count == 0) return null;
+            var requirements = new List<OrderRequirement>();
+            for (int i = 0; i < od.Items.Count; i++)
+            {
+                if (od.Items[i] == null || !catalog.TryGetItem(od.Items[i], out _))
+                {
+                    warnings?.Add("Order " + od.Id + " requests unknown item '" + od.Items[i] + "'; order dropped");
+                    return null;
+                }
+                bool fulfilled = od.Fulfilled != null && i < od.Fulfilled.Count && od.Fulfilled[i];
+                requirements.Add(new OrderRequirement(od.Items[i], fulfilled));
+            }
+            string bonus = od.BonusItemId != null && catalog.TryGetItem(od.BonusItemId, out _) ? od.BonusItemId : null;
+            return new Order(od.Id, od.CustomerId ?? OrderRules.Customers[0], od.ChainId, requirements,
+                Math.Max(0, od.Glimmer), Math.Max(0, od.Xp), Math.Max(0, od.Lifebloom), bonus);
         }
 
         private static ItemInstance RestoreItem(string itemId, int? charges, long? refreshTicks, bool? adUsed, ICatalog catalog, IClock clock,
