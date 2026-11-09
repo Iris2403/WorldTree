@@ -90,6 +90,9 @@ namespace WorldTree.Game
             foreach (var error in BoardLayoutValidator.Validate(_layout, _catalog))
                 Debug.LogWarning("[WorldTree] Starting layout: " + error);
 
+            // Sound needs exactly one AudioListener; scenes built before Phase 6 have none.
+            if (FindAnyObjectByType<AudioListener>() == null) boardCamera.gameObject.AddComponent<AudioListener>();
+
             // uGUI buttons need an EventSystem; the Input System's UI module drives it.
             if (FindAnyObjectByType<EventSystem>() == null)
                 new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));

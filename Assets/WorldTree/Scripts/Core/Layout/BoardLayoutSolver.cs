@@ -42,6 +42,10 @@ namespace WorldTree.Core.Layout
             cell = Math.Max(MinCell, Math.Min(MaxCell, cell));
 
             float hud = Chrome[tier, 0], orders = Chrome[tier, 1], context = Chrome[tier, 2];
+            // The board must always fit: on screens too small for 44 pt cells (unsupported sizes, or a mis-measured
+            // Editor window) the cells shrink instead of spilling under the HUD.
+            float fitCell = Math.Min(widthCell, (safeHeight - hud - orders - context) / rows);
+            if (cell > fitCell) cell = Math.Max(1f, fitCell);
             float boardWidth = cell * columns, boardHeight = cell * rows;
             float leftover = Math.Max(0f, safeHeight - hud - orders - context - boardHeight);
             float banner = leftover >= MinBanner ? leftover : 0f;

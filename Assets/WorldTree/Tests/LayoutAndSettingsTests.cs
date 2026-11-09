@@ -32,10 +32,29 @@ namespace WorldTree.Tests
         }
 
         [Test]
-        public void CellIsAlwaysBetween44And80Points()
+        public void BoardAlwaysFitsInsideTheSafeArea()
         {
-            for (float w = 300; w <= 1200; w += 37)
-                for (float h = 500; h <= 1600; h += 41)
+            // Includes screens too small for 44 pt cells, like a wide Editor Game view mis-measured as
+            // 357 pt tall: the board must shrink rather than spill under the HUD.
+            for (float w = 200; w <= 2000; w += 53)
+                for (float h = 250; h <= 2000; h += 47)
+                {
+                    var l = BoardLayoutSolver.Solve(w, h, 7, 9);
+                    float available = h - l.HudHeight - l.OrdersHeight - l.ContextHeight;
+                    Assert.LessOrEqual(l.BoardHeight, available + 0.01f, w + "x" + h);
+                    Assert.LessOrEqual(l.BoardWidth, w - 2 * BoardLayoutSolver.SideMargin + 0.01f, w + "x" + h);
+                    Assert.Greater(l.Cell, 0f, w + "x" + h);
+                }
+            var editor = BoardLayoutSolver.Solve(640f, 357f, 7, 9);
+            Assert.LessOrEqual(editor.BoardHeight, 357f - editor.HudHeight - editor.OrdersHeight - editor.ContextHeight + 0.01f);
+        }
+
+        [Test]
+        public void CellIsBetween44And80PointsOnSupportedScreens()
+        {
+            // Supported: at least 360 pt wide and tall enough for the Minimum tier (156 pt chrome + 9 x 44 pt).
+            for (float w = 360; w <= 1200; w += 37)
+                for (float h = 560; h <= 1600; h += 41)
                 {
                     var l = BoardLayoutSolver.Solve(w, h, 7, 9);
                     Assert.That(l.Cell, Is.InRange(BoardLayoutSolver.MinCell, BoardLayoutSolver.MaxCell), w + "x" + h);

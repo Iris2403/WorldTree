@@ -45,14 +45,17 @@ namespace WorldTree.Game
         }
 
         /// <summary>
-        /// Pixels per point. Screen.dpi is unreliable on some Android devices (06-mobile-layout.md §6), so an
-        /// implausible value falls back to treating the shorter screen side as 360 pt.
+        /// Pixels per point. Screen.dpi is unreliable on some Android devices and in the Editor
+        /// (06-mobile-layout.md §6). An implausible value, or any Editor/desktop run, falls back to a phone-sized
+        /// canvas of about 390 × 844 pt in either orientation, so a wide Game view isn't mistaken for a tiny screen.
         /// </summary>
         private static float PixelsPerPoint()
         {
-            float fallback = Mathf.Min(Screen.width, Screen.height) / 360f;
+            float fallback = Mathf.Max(Mathf.Min(Screen.width, Screen.height) / 390f, Mathf.Max(Screen.width, Screen.height) / 844f);
+            fallback = Mathf.Max(0.5f, Mathf.Min(fallback, Screen.height / 568f)); // never shorter than the smallest supported phone
+            if (!Application.isMobilePlatform) return fallback;
             float dpi = Screen.dpi;
-            if (dpi < 100f || dpi > 800f) return Mathf.Max(0.5f, fallback);
+            if (dpi < 100f || dpi > 800f) return fallback;
             return dpi / 160f;
         }
     }
