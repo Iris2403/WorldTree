@@ -78,6 +78,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 | D39 | Days per area | Checked in Phase 5, when area restoration costs exist. Phase 4 provides the Lifebloom income they will be set from | "Days per area" needs Lifebloom costs per area, which are Phase 5 content |
 | D40 | Area costs and days per area | Area 1 Sunlit Glade: 10 tasks, 500 Lifebloom. Area 2 Emberroot Village: 10 tasks, 900 Lifebloom. Set from simulated Lifebloom income of a core player with real orders: Glade 1.7–2.4 days (levels 2–3), Village 6.0–6.8 days (levels 6–8), checked by a test against the GDD §5.1 targets (about 2–3 and about 6 more) | Completes D39. Lifebloom per Sap is higher early (small orders pay at least 1 Lifebloom), so costs are set per area from measured income, not from the Sap budget alone |
 | D41 | Phase 5 scope cuts | Tasks are restored in order and cost Lifebloom only. Story orders (GDD §6.2) and replaying scenes from the Codex are not built yet. The area view is a graybox: one tile per task cross-fading from blighted to restored; layered area art comes in Phase 6. Areas 3–5 are not built; after Area 2 the World panel says more is coming | Keeps Phase 5 to the roadmap's deliverables. Each cut can be added later without changing saves |
+| D42 | Art and audio sourcing | **User decision:** stand-ins now, real assets later. Phase 6 delivers the pipeline (icon slots in the chain assets, audio slots in `AudioService`, `docs/art/asset-spec.md`, `docs/art/placeholders.md`, *WorldTree → Art → Report Placeholders*) and polished generated stand-ins (shapes per chain, rounded UI, particles, synthesized SFX and music). Phase 6 acceptance "zero placeholders" becomes "every placeholder is tracked and replaceable without code changes" until real assets arrive | Final painted art and composed audio can't be produced in this environment, and unlicensed assets are not allowed |
+| D43 | Blight dissolve | The blight cover swells and fades with a particle burst instead of a dissolve shader. A shader is written once real blight art exists, because it needs iteration in the Editor | A hand-written shader can't be tested here; a broken one renders pink |
 
 ## Phase 1: Project architecture and playable prototype 🔄
 
@@ -176,7 +178,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Level, XP and Lifebloom update; Debug → +50 XP levels up, refills Sap and shows "Level up!"; at level 8 a 4th order appears
 - [ ] Stop and restart Play: orders (including delivered pieces), level, XP and Lifebloom are kept
 
-## Phase 5: Story and world restoration 🔄
+## Phase 5: Story and world restoration ✅
 
 **Deliverables:** AreaDefinition and QuestLine, restoration tasks, layered area scene with corrupted/restored cross-fades (graybox tiles for now, D41), dialogue system and scenes for Areas 1–2, story flags, area transitions, Memory Leaf vignettes.
 
@@ -188,7 +190,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - ✅ Balance: days per area with real orders within targets (D40)
 - ✅ Tests: 260 passing via `dotnet test tools/CoreTests` (16 new)
 - ✅ Unity layer written: area and dialogue assets (created by the setup menu), World panel (task tiles cross-fade, Restore button), dialogue box (Next, Skip; Memory Leaf lines in gold italics), story validation in *Validate Data* and at boot, debug +100 Lifebloom. Type-checked against Unity API stubs only. **Not yet run in Unity**
-- ⬜ Unity Editor validation (checklist below)
+- ✅ Unity Editor validation: play-tested by the user
 
 **⚠ Editor validation checklist:**
 - [ ] After pulling: *WorldTree → Setup → Build Prototype Scene* → **Update** (creates the area and dialogue assets), then *Validate Data* is clean
@@ -199,13 +201,26 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⚠ requires Unity Ed
 - [ ] Restoring Emberroot Village plays the Memory Leaf scene (gold italic lines) and gives a Moonwell Spring Lv2; the World panel then says more is coming
 - [ ] Stop and restart Play mid-area: restored tiles, the next task and unseen scenes are kept
 
-## Phase 6: Visual polish, animation and sound ⬜
+## Phase 6: Visual polish, animation and sound 🔄
 
-**Deliverables:** multi-device layout per `06-mobile-layout.md` (tiers, `BoardLayoutSolver` with reference-device tests, scene banner, context bar), final UI skin, item and generator art pipeline (replacing all placeholders), VFX library, blight-dissolve shader, audio integration (music per area, SFX pitch per level), haptics (iOS and Android), accessibility settings, reduced motion.
+**Deliverables:** multi-device layout per `06-mobile-layout.md` (tiers, `BoardLayoutSolver` with reference-device tests, scene banner, context bar), UI skin, item and generator art pipeline, VFX library, blight dissolve, audio integration (music per area, SFX pitch per level), haptics (iOS and Android), accessibility settings, reduced motion. Art and audio are generated stand-ins until real assets arrive (D42).
 
-**Acceptance:** zero placeholder assets remaining (tracked list), and audio and haptic toggles persist.
+**Acceptance:** every placeholder tracked in `docs/art/placeholders.md` and replaceable without code changes (D42); audio and haptic toggles persist.
 
-**⚠ Editor validation:** everything visual and audible, plus haptics on physical devices.
+**Status:**
+- ✅ Core: `BoardLayoutSolver` with tests for all 7 reference devices and a 44–80 pt sweep; settings (music, sound, haptics, reduced motion, large text) saved, with defaults for older saves
+- ✅ Tests: 271 passing via `dotnet test tools/CoreTests`
+- ✅ Unity layer written: `LayoutController` applies the solver (tiers, scene banner with area progress, context bar) and fits the board camera; stand-in art (leaf / drop / crate / round / star shapes with shading, rounded 9-slice UI); real icons replace stand-ins when assigned; blight dissolve (D43); particle bursts for merges and cleansing; synthesized SFX (merge chime pitched per level, pop, bell, reward, level-up, reject, click) and ambient music per area with crossfade; haptics (iOS native plugin, Android Vibrator); Settings panel; reduced motion; large text; *WorldTree → Art → Report Placeholders*. Type-checked against Unity API stubs only. **Not yet run in Unity, and haptics need real devices**
+- ⬜ Unity Editor validation (checklist below)
+
+**⚠ Editor validation checklist:**
+- [ ] Items show their stand-in shapes (Nature leaves, Water drops, Craft crates, Food rounds, Acorn star); panels and buttons are rounded
+- [ ] Merging plays a chime that rises with the item level and a coloured sparkle burst; spawning pops; cleansing a blighted cell plays a bell, the cover swells and fades, with a violet burst
+- [ ] Ambient music plays and changes after an area is restored; buttons click
+- [ ] Settings (top right): Music, Sound effects, Vibration, Reduced motion (no particles, instant moves), Large text (bigger dialogue and info) all work and survive a restart
+- [ ] Device Simulator: iPhone SE uses the compact layout, a 20:9 Android and Pro Max show the area banner, iPad caps cells at 80 pt; the board sits just above the bottom bar on all of them
+- [ ] *WorldTree → Art → Report Placeholders* lists the items without icons; assigning a test sprite as an icon replaces that item's stand-in
+- [ ] On a real iPhone and Android phone (Phase 7 builds): merges tick, level-ups buzz, and Vibration off silences them
 
 ## Phase 7: Saving, optimization and mobile builds ⬜
 

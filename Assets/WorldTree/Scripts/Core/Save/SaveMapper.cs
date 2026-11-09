@@ -10,6 +10,7 @@ using WorldTree.Core.Inventory;
 using WorldTree.Core.Items;
 using WorldTree.Core.Orders;
 using WorldTree.Core.Progression;
+using WorldTree.Core.Settings;
 using WorldTree.Core.Story;
 
 namespace WorldTree.Core.Save
@@ -43,6 +44,11 @@ namespace WorldTree.Core.Save
                 OrdersCompleted = session.Orders.Completed,
                 LastOrderSwapUtcTicks = session.Orders.LastSwapUtc?.Ticks,
             };
+            data.MusicOn = session.Settings.Music;
+            data.SoundOn = session.Settings.Sound;
+            data.HapticsOn = session.Settings.Haptics;
+            data.ReducedMotion = session.Settings.ReducedMotion;
+            data.LargeText = session.Settings.LargeText;
             data.AreaIndex = session.Quest.AreaIndex;
             data.CompletedTasks.AddRange(Sorted(session.Quest.CompletedTasks));
             data.StoryFlags.AddRange(Sorted(session.Quest.Flags));
@@ -176,7 +182,18 @@ namespace WorldTree.Core.Save
                 new Wallet(Math.Max(0, data.Glimmer), Math.Max(0, data.Moonpetals), Math.Max(0, data.Lifebloom)), codex, satchel,
                 data.RandomState, clock, new DailyGift(data.DailyGiftNextDay, data.DailyGiftLastClaimDay),
                 new DailyLimits(data.LimitsDay, data.SapRefillsToday, data.AdSapClaimsToday),
-                new PlayerProgress(data.Level, data.Xp), orders, story, RestoreQuest(data, story, warnings));
+                new PlayerProgress(data.Level, data.Xp), orders, story, RestoreQuest(data, story, warnings), RestoreSettings(data));
+        }
+
+        private static GameSettings RestoreSettings(SaveData data)
+        {
+            var settings = new GameSettings();
+            if (data.MusicOn.HasValue) settings.Music = data.MusicOn.Value;
+            if (data.SoundOn.HasValue) settings.Sound = data.SoundOn.Value;
+            if (data.HapticsOn.HasValue) settings.Haptics = data.HapticsOn.Value;
+            if (data.ReducedMotion.HasValue) settings.ReducedMotion = data.ReducedMotion.Value;
+            if (data.LargeText.HasValue) settings.LargeText = data.LargeText.Value;
+            return settings;
         }
 
         private static QuestState RestoreQuest(SaveData data, StoryCatalog story, List<string> warnings)

@@ -47,5 +47,12 @@ namespace WorldTree.Core.Save
         public List<string> CompletedTasks = new List<string>();
         public List<string> StoryFlags = new List<string>();
         public List<string> PendingDialogues = new List<string>();
+
+        // Phase 6 settings. Absent in older saves: defaults (sound, music and haptics on).
+        public bool? MusicOn;
+        public bool? SoundOn;
+        public bool? HapticsOn;
+        public bool? ReducedMotion;
+        public bool? LargeText;
     }
 }

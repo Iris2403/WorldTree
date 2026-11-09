@@ -23,6 +23,12 @@ namespace WorldTree.Game
 
         public bool IsOpen => gameObject.activeSelf;
 
+        public void SetLargeText(bool large)
+        {
+            _line.fontSize = large ? 52 : 40;
+            _speaker.fontSize = large ? 50 : 42;
+        }
+
         public static DialogueView Create(Transform parent)
         {
             var rt = HudView.NewRect("Dialogue", parent, new Vector2(0.03f, 0.13f), new Vector2(0.97f, 0.42f));

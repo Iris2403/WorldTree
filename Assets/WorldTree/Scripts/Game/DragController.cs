@@ -23,6 +23,9 @@ namespace WorldTree.Game
         private HudView _hud;
         private GameSession _session;
 
+        /// <summary>Plays the reject sound and haptic when a drop bounces back.</summary>
+        public FeedbackService Feedback { get; set; }
+
         private bool _pressing;
         private bool _dragging;
         private bool _hasOrigin;
@@ -144,6 +147,7 @@ namespace WorldTree.Game
                 var target = _board.WorldToCell(ScreenToWorld(screen));
                 var decision = _session.DragItem(_origin, target);
                 if (decision.Kind == MoveKind.Rejected || decision.Kind == MoveKind.NoOp) _board.SnapBack(_origin);
+                if (decision.Kind == MoveKind.Rejected && Feedback != null) Feedback.Reject();
                 _board.EndDrag(_dragView);
                 _dragView = null;
                 return;

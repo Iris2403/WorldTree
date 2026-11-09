@@ -1,6 +1,6 @@
 # WORLD TREE: Mobile Layout Specification
 
-> Status: **Target for Phase 6 (roadmap D25).** Phase 1 only fits the board into the portrait safe area. Units are points (pt) on iOS and density-independent pixels (dp) on Android. They're treated as equal here.
+> Status: **Implemented in Phase 6** (`BoardLayoutSolver` in Core with tests for every device in §4; `LayoutController` in Game). Units are points (pt) on iOS and density-independent pixels (dp) on Android. They're treated as equal here.
 
 ## 1. Goals
 

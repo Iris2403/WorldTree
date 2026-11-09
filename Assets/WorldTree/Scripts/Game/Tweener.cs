@@ -26,6 +26,9 @@ namespace WorldTree.Game
 
         private readonly Tween[] _tweens = new Tween[128];
 
+        /// <summary>Accessibility (GDD §10): when true, tweens jump to their end state instead of animating.</summary>
+        public static bool ReducedMotion { get; set; }
+
         public void Move(Transform target, Vector3 to, float duration, float arcHeight = 0f)
         {
             Add(new Tween { Kind = Kind.Move, Target = target, From = target.position, To = to, Arc = arcHeight, Duration = duration });
@@ -46,6 +49,11 @@ namespace WorldTree.Game
         // Not named Start: Unity treats any MonoBehaviour method called Start as the lifecycle message.
         private void Add(Tween tween)
         {
+            if (ReducedMotion)
+            {
+                Apply(ref tween, 1f);
+                return;
+            }
             tween.Active = true;
             int free = -1;
             for (int i = 0; i < _tweens.Length; i++)

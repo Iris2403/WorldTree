@@ -38,6 +38,7 @@ namespace WorldTree.Game
         private HudView _hud;
         private SaveDriver _saveDriver;
         private DebugOverlay _debug;
+        private FeedbackService _feedback;
 
         public GameSession Session { get; private set; }
 
@@ -99,12 +100,16 @@ namespace WorldTree.Game
             _drag = gameObject.AddComponent<DragController>();
             _saveDriver = gameObject.AddComponent<SaveDriver>();
             _debug = gameObject.AddComponent<DebugOverlay>();
+            var audio = gameObject.AddComponent<AudioService>();
+            _feedback = gameObject.AddComponent<FeedbackService>();
+            _feedback.Init(audio, Haptics.Create());
             // Explicit null check: '??' bypasses Unity's overloaded null test for destroyed/missing objects.
             var fitter = boardCamera.GetComponent<BoardCameraFitter>();
             if (fitter == null) fitter = boardCamera.gameObject.AddComponent<BoardCameraFitter>();
 
             StartSession(session);
             fitter.Init(_board);
+            _hud.gameObject.AddComponent<LayoutController>().Init(_hud, _board, fitter);
 
             if (load.RestoreFailed) _hud.ShowMessage("Your save couldn't be restored, so a new game was started.", 6f);
         }
@@ -121,6 +126,8 @@ namespace WorldTree.Game
             Session = session;
             _board.Init(session, database, _tweener);
             _hud.SetSession(session, database, _board);
+            _feedback.SetSession(session, database, _board);
+            _drag.Feedback = _feedback;
             _drag.Init(session, _board, _hud, boardCamera);
             _saveDriver.Init(session, _store, _clock, _hud);
             _debug.Init(session, this);
