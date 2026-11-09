@@ -212,6 +212,7 @@ namespace WorldTree.EditorTools
             camera.backgroundColor = new Color(0.05f, 0.07f, 0.06f);
             cameraGo.transform.position = new Vector3(0f, 0f, -10f);
             cameraGo.AddComponent<BoardCameraFitter>();
+            cameraGo.AddComponent<AudioListener>();
 
             var bootGo = new GameObject("Bootstrapper");
             var boot = bootGo.AddComponent<Bootstrapper>();
